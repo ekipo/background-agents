@@ -43,9 +43,8 @@ import type {
   MessageSource,
   ParticipantRole,
 } from "../types";
-import type { SessionRow, ParticipantRow, EventRow, SandboxRow } from "./types";
+import type { SessionRow, ParticipantRow, EventRow, SandboxRow, SandboxCommand } from "./types";
 import { SessionRepository, type MessageWithParticipant } from "./repository";
-import { MessageQueueProcessor } from "./message-queue/processor";
 import { RepoSecretsStore } from "../db/repo-secrets";
 
 /**
@@ -107,8 +106,6 @@ export class SessionDO extends DurableObject<Env> {
   >();
   // Lifecycle manager (lazily initialized)
   private _lifecycleManager: SandboxLifecycleManager | null = null;
-  // Message queue processor (lazily initialized)
-  private _queueProcessor: MessageQueueProcessor | null = null;
 
   // Route table for internal API endpoints
   private readonly routes: InternalRoute[] = [
@@ -277,44 +274,6 @@ export class SessionDO extends DurableObject<Env> {
       idGenerator,
       config
     );
-  }
-
-  /**
-   * Get the message queue processor, creating it lazily if needed.
-   */
-  private get queueProcessor(): MessageQueueProcessor {
-    if (!this._queueProcessor) {
-      this._queueProcessor = this.createQueueProcessor();
-    }
-    return this._queueProcessor;
-  }
-
-  /**
-   * Create the message queue processor with required adapters.
-   */
-  private createQueueProcessor(): MessageQueueProcessor {
-    return new MessageQueueProcessor({
-      repository: this.repository,
-      getSandboxWebSocket: () => this.getSandboxWebSocket(),
-      isSandboxSpawning: () => this.lifecycleManager.isSpawning(),
-      spawnSandbox: () => this.spawnSandbox(),
-      safeSend: (ws, data) => this.safeSend(ws, data),
-      getSessionModel: () => this.getSession()?.model ?? null,
-      broadcast: (message) => this.broadcast(message),
-      updateLastActivity: (timestamp) => this.updateLastActivity(timestamp),
-      scheduleInactivityCheck: () => this.scheduleInactivityCheck(),
-      triggerSnapshot: (reason) => this.triggerSnapshot(reason),
-      waitUntil: (promise) => this.ctx.waitUntil(promise),
-      notifySlackBot: (messageId, success) => this.notifySlackBot(messageId, success),
-      now: () => Date.now(),
-      generateId: () => generateId(),
-      log: {
-        debug: (message, meta) => this.log.debug(message, meta),
-        info: (message, meta) => this.log.info(message, meta),
-        warn: (message, meta) => this.log.warn(message, meta),
-        error: (message, meta) => this.log.error(message, meta),
-      },
-    });
   }
 
   /**
@@ -980,13 +939,51 @@ export class SessionDO extends DurableObject<Env> {
       return;
     }
 
-    const { messageId, position } = this.queueProcessor.enqueuePrompt({
-      authorUserId: client.userId,
-      authorDisplayName: client.name,
-      source: "web",
+    const messageId = generateId();
+    const now = Date.now();
+
+    // Get or create participant
+    let participant = this.getParticipantByUserId(client.userId);
+    if (!participant) {
+      participant = this.createParticipant(client.userId, client.name);
+    }
+
+    // Validate per-message model override if provided
+    let messageModel: string | null = null;
+    if (data.model) {
+      if (isValidModel(data.model)) {
+        messageModel = data.model;
+      } else {
+        this.log.warn("Invalid message model, ignoring override", { model: data.model });
+      }
+    }
+
+    // Insert message with optional model override
+    this.repository.createMessage({
+      id: messageId,
+      authorId: participant.id,
       content: data.content,
-      modelOverride: data.model,
-      attachments: data.attachments,
+      source: "web",
+      model: messageModel,
+      attachments: data.attachments ? JSON.stringify(data.attachments) : null,
+      status: "pending",
+      createdAt: now,
+    });
+
+    // Get queue position
+    const position = this.repository.getPendingOrProcessingCount();
+
+    this.log.info("prompt.enqueue", {
+      event: "prompt.enqueue",
+      message_id: messageId,
+      source: "web",
+      author_id: participant.id,
+      user_id: client.userId,
+      model: messageModel,
+      content_length: data.content.length,
+      has_attachments: !!data.attachments?.length,
+      attachments_count: data.attachments?.length ?? 0,
+      queue_position: position,
     });
 
     // Confirm to sender
@@ -1040,10 +1037,78 @@ export class SessionDO extends DurableObject<Env> {
     } else if (event.type !== "execution_complete") {
       this.log.info("Sandbox event", { event_type: event.type });
     }
-    const { messageId, createdAt } = this.queueProcessor.recordSandboxEvent(event);
+    const now = Date.now();
+    const eventId = generateId();
 
+    // Get messageId from the event first (sandbox sends correct messageId with every event)
+    // Only fall back to DB lookup if event doesn't include messageId (legacy fallback)
+    // This prevents race conditions where events from message A arrive after message B starts processing
+    const eventMessageId = "messageId" in event ? event.messageId : null;
+    const processingMessage = this.repository.getProcessingMessage();
+    const messageId = eventMessageId ?? processingMessage?.id ?? null;
+
+    // Store event
+    this.repository.createEvent({
+      id: eventId,
+      type: event.type,
+      data: JSON.stringify(event),
+      messageId,
+      createdAt: now,
+    });
+
+    // Handle specific event types
     if (event.type === "execution_complete") {
-      await this.queueProcessor.handleExecutionComplete(event, messageId, createdAt);
+      // Use the resolved messageId (which now correctly prioritizes event.messageId)
+      const completionMessageId = messageId ?? event.messageId;
+      const status = event.success ? "completed" : "failed";
+
+      if (completionMessageId) {
+        this.repository.updateMessageCompletion(completionMessageId, status, now);
+
+        // Emit prompt.complete wide event with duration metrics
+        const timestamps = this.repository.getMessageTimestamps(completionMessageId);
+        const totalDurationMs = timestamps ? now - timestamps.created_at : undefined;
+        const processingDurationMs =
+          timestamps?.started_at != null ? now - timestamps.started_at : undefined;
+        const queueDurationMs =
+          timestamps?.started_at != null
+            ? timestamps.started_at - timestamps.created_at
+            : undefined;
+
+        this.log.info("prompt.complete", {
+          event: "prompt.complete",
+          message_id: completionMessageId,
+          outcome: event.success ? "success" : "failure",
+          message_status: status,
+          total_duration_ms: totalDurationMs,
+          processing_duration_ms: processingDurationMs,
+          queue_duration_ms: queueDurationMs,
+        });
+
+        // Broadcast processing status change (after DB update so getIsProcessing is accurate)
+        this.broadcast({ type: "processing_status", isProcessing: this.getIsProcessing() });
+
+        // Notify slack-bot of completion (fire-and-forget with retry)
+        this.ctx.waitUntil(this.notifySlackBot(completionMessageId, event.success));
+      } else {
+        this.log.warn("prompt.complete", {
+          event: "prompt.complete",
+          outcome: "error",
+          error_reason: "no_message_id",
+        });
+      }
+
+      // Take snapshot after execution completes (per Ramp spec)
+      // "When the agent is finished making changes, we take another snapshot"
+      // Use fire-and-forget so snapshot doesn't block the response to the user
+      this.ctx.waitUntil(this.triggerSnapshot("execution_complete"));
+
+      // Reset activity timer - give user time to review output before inactivity timeout
+      this.updateLastActivity(now);
+      await this.scheduleInactivityCheck();
+
+      // Process next in queue
+      await this.processMessageQueue();
     }
 
     if (event.type === "git_sync") {
@@ -1055,7 +1120,7 @@ export class SessionDO extends DurableObject<Env> {
     }
 
     if (event.type === "heartbeat") {
-      this.repository.updateSandboxHeartbeat(createdAt);
+      this.repository.updateSandboxHeartbeat(now);
       // Note: Don't schedule separate heartbeat alarm - it's handled in the main alarm()
       // which checks both inactivity and heartbeat health
     }
@@ -1223,7 +1288,81 @@ export class SessionDO extends DurableObject<Env> {
    * Process message queue.
    */
   private async processMessageQueue(): Promise<void> {
-    await this.queueProcessor.processQueue();
+    // Check if already processing
+    if (this.repository.getProcessingMessage()) {
+      this.log.debug("processMessageQueue: already processing, returning");
+      return;
+    }
+
+    // Get next pending message
+    const message = this.repository.getNextPendingMessage();
+    if (!message) {
+      return;
+    }
+    const now = Date.now();
+
+    // Check if sandbox is connected (with hibernation recovery)
+    const sandboxWs = this.getSandboxWebSocket();
+    if (!sandboxWs) {
+      // No sandbox connected - spawn one if not already spawning
+      // spawnSandbox has its own persisted status check
+      this.log.info("prompt.dispatch", {
+        event: "prompt.dispatch",
+        message_id: message.id,
+        outcome: "deferred",
+        reason: "no_sandbox",
+      });
+      this.broadcast({ type: "sandbox_spawning" });
+      await this.spawnSandbox();
+      // Don't mark as processing yet - wait for sandbox to connect
+      return;
+    }
+
+    // Mark as processing
+    this.repository.updateMessageToProcessing(message.id, now);
+
+    // Broadcast processing status change (hardcoded true since we just set status above)
+    this.broadcast({ type: "processing_status", isProcessing: true });
+
+    // Reset activity timer - user is actively using the sandbox
+    this.updateLastActivity(now);
+
+    // Get author info (use toArray since author may not exist in participants table)
+    const author = this.repository.getParticipantById(message.author_id);
+
+    // Get session for default model
+    const session = this.getSession();
+
+    // Send to sandbox with model (per-message override or session default)
+    const resolvedModel = message.model || session?.model || "claude-haiku-4-5";
+    const command: SandboxCommand = {
+      type: "prompt",
+      messageId: message.id,
+      content: message.content,
+      model: resolvedModel,
+      author: {
+        userId: author?.user_id ?? "unknown",
+        githubName: author?.github_name ?? null,
+        githubEmail: author?.github_email ?? null,
+      },
+      attachments: message.attachments ? JSON.parse(message.attachments) : undefined,
+    };
+
+    const sent = this.safeSend(sandboxWs, command);
+
+    this.log.info("prompt.dispatch", {
+      event: "prompt.dispatch",
+      message_id: message.id,
+      outcome: sent ? "sent" : "send_failed",
+      model: resolvedModel,
+      author_id: message.author_id,
+      user_id: author?.user_id ?? "unknown",
+      source: message.source,
+      has_sandbox_ws: true,
+      sandbox_ready_state: sandboxWs.readyState,
+      queue_wait_ms: now - message.created_at,
+      has_attachments: !!message.attachments,
+    });
   }
 
   /**
@@ -1756,13 +1895,41 @@ export class SessionDO extends DurableObject<Env> {
         };
       };
 
-      const { messageId } = this.queueProcessor.enqueuePrompt({
-        authorUserId: body.authorId,
-        authorDisplayName: body.authorId,
-        source: body.source as MessageSource,
+      // Get or create participant for the author
+      // The authorId here is a user ID (like "anonymous"), not a participant row ID
+      let participant = this.getParticipantByUserId(body.authorId);
+      if (!participant) {
+        participant = this.createParticipant(body.authorId, body.authorId);
+      }
+
+      const messageId = generateId();
+      const now = Date.now();
+
+      this.repository.createMessage({
+        id: messageId,
+        authorId: participant.id, // Use the participant's row ID, not the user ID
         content: body.content,
-        attachments: body.attachments ?? null,
-        callbackContext: body.callbackContext ?? null,
+        source: body.source as MessageSource,
+        attachments: body.attachments ? JSON.stringify(body.attachments) : null,
+        callbackContext: body.callbackContext ? JSON.stringify(body.callbackContext) : null,
+        status: "pending",
+        createdAt: now,
+      });
+
+      const queuePosition = this.repository.getPendingOrProcessingCount();
+
+      this.log.info("prompt.enqueue", {
+        event: "prompt.enqueue",
+        message_id: messageId,
+        source: body.source,
+        author_id: participant.id,
+        user_id: body.authorId,
+        model: null,
+        content_length: body.content.length,
+        has_attachments: !!body.attachments?.length,
+        attachments_count: body.attachments?.length ?? 0,
+        has_callback_context: !!body.callbackContext,
+        queue_position: queuePosition,
       });
 
       await this.processMessageQueue();

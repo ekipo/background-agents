@@ -3,9 +3,9 @@ import { webcrypto } from "node:crypto";
 import { RepoSecretsStore, RepoSecretsValidationError } from "./repo-secrets";
 import { generateEncryptionKey } from "../auth/crypto";
 
-if (!globalThis.crypto) {
-  // @ts-expect-error - webcrypto assignment for tests
-  globalThis.crypto = webcrypto;
+const globalCrypto = (globalThis as { crypto?: typeof webcrypto }).crypto;
+if (!globalCrypto) {
+  (globalThis as { crypto?: typeof webcrypto }).crypto = webcrypto;
 }
 
 type RepoSecretRow = {
