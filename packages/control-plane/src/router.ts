@@ -1271,8 +1271,8 @@ async function handleSetRepoSecrets(
   if (!env.DB) {
     return error("Secrets storage is not configured", 503);
   }
-  if (!env.TOKEN_ENCRYPTION_KEY) {
-    return error("TOKEN_ENCRYPTION_KEY not configured", 500);
+  if (!env.REPO_SECRETS_ENCRYPTION_KEY) {
+    return error("REPO_SECRETS_ENCRYPTION_KEY not configured", 500);
   }
 
   const owner = match.groups?.owner;
@@ -1313,7 +1313,7 @@ async function handleSetRepoSecrets(
     return error("Request body must include secrets object", 400);
   }
 
-  const store = new RepoSecretsStore(env.DB, env.TOKEN_ENCRYPTION_KEY);
+  const store = new RepoSecretsStore(env.DB, env.REPO_SECRETS_ENCRYPTION_KEY);
 
   try {
     const result = await store.setSecrets(
@@ -1370,8 +1370,8 @@ async function handleListRepoSecrets(
   if (!env.DB) {
     return error("Secrets storage is not configured", 503);
   }
-  if (!env.TOKEN_ENCRYPTION_KEY) {
-    return error("TOKEN_ENCRYPTION_KEY not configured", 500);
+  if (!env.REPO_SECRETS_ENCRYPTION_KEY) {
+    return error("REPO_SECRETS_ENCRYPTION_KEY not configured", 500);
   }
 
   const owner = match.groups?.owner;
@@ -1401,7 +1401,7 @@ async function handleListRepoSecrets(
     );
   }
 
-  const store = new RepoSecretsStore(env.DB, env.TOKEN_ENCRYPTION_KEY);
+  const store = new RepoSecretsStore(env.DB, env.REPO_SECRETS_ENCRYPTION_KEY);
 
   try {
     const secrets = await store.listSecretKeys(resolved.repoId);
@@ -1445,8 +1445,8 @@ async function handleDeleteRepoSecret(
   if (!env.DB) {
     return error("Secrets storage is not configured", 503);
   }
-  if (!env.TOKEN_ENCRYPTION_KEY) {
-    return error("TOKEN_ENCRYPTION_KEY not configured", 500);
+  if (!env.REPO_SECRETS_ENCRYPTION_KEY) {
+    return error("REPO_SECRETS_ENCRYPTION_KEY not configured", 500);
   }
 
   const owner = match.groups?.owner;
@@ -1477,7 +1477,7 @@ async function handleDeleteRepoSecret(
     );
   }
 
-  const store = new RepoSecretsStore(env.DB, env.TOKEN_ENCRYPTION_KEY);
+  const store = new RepoSecretsStore(env.DB, env.REPO_SECRETS_ENCRYPTION_KEY);
 
   try {
     store.validateKey(store.normalizeKey(key));

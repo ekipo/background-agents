@@ -1493,10 +1493,10 @@ export class SessionDO extends DurableObject<Env> {
       return undefined;
     }
 
-    if (!this.env.DB || !this.env.TOKEN_ENCRYPTION_KEY) {
+    if (!this.env.DB || !this.env.REPO_SECRETS_ENCRYPTION_KEY) {
       this.log.debug("Secrets not configured, skipping", {
         has_db: !!this.env.DB,
-        has_encryption_key: !!this.env.TOKEN_ENCRYPTION_KEY,
+        has_encryption_key: !!this.env.REPO_SECRETS_ENCRYPTION_KEY,
       });
       return undefined;
     }
@@ -1513,7 +1513,7 @@ export class SessionDO extends DurableObject<Env> {
       return undefined;
     }
 
-    const store = new RepoSecretsStore(this.env.DB, this.env.TOKEN_ENCRYPTION_KEY);
+    const store = new RepoSecretsStore(this.env.DB, this.env.REPO_SECRETS_ENCRYPTION_KEY);
 
     try {
       const secrets = await store.getDecryptedSecrets(repoId);

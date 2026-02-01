@@ -124,6 +124,7 @@ module "control_plane_worker" {
   secrets = [
     { name = "GITHUB_CLIENT_SECRET", value = var.github_client_secret },
     { name = "TOKEN_ENCRYPTION_KEY", value = var.token_encryption_key },
+    { name = "REPO_SECRETS_ENCRYPTION_KEY", value = var.repo_secrets_encryption_key },
     { name = "MODAL_TOKEN_ID", value = var.modal_token_id },
     { name = "MODAL_TOKEN_SECRET", value = var.modal_token_secret },
     { name = "MODAL_API_SECRET", value = var.modal_api_secret },
