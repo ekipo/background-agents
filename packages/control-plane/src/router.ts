@@ -1098,7 +1098,18 @@ async function handleListRepos(
   // Fetch repositories from GitHub App installation
   let repos: InstallationRepository[];
   try {
-    repos = await ctx.metrics.time("github_api", () => listInstallationRepositories(appConfig));
+    const result = await ctx.metrics.time("github_api", () =>
+      listInstallationRepositories(appConfig)
+    );
+    repos = result.repos;
+
+    logger.info("GitHub repo fetch completed", {
+      trace_id: ctx.trace_id,
+      total_repos: result.timing.totalRepos,
+      total_pages: result.timing.totalPages,
+      token_generation_ms: result.timing.tokenGenerationMs,
+      pages: result.timing.pages,
+    });
   } catch (e) {
     logger.error("Failed to list installation repositories", {
       error: e instanceof Error ? e : String(e),
