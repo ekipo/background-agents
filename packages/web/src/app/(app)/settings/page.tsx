@@ -6,6 +6,9 @@ import { SettingsNav, type SettingsCategory } from "@/components/settings/settin
 import { SecretsSettings } from "@/components/settings/secrets-settings";
 import { ModelsSettings } from "@/components/settings/models-settings";
 import { DataControlsSettings } from "@/components/settings/data-controls-settings";
+import { KeyboardShortcutsSettings } from "@/components/settings/keyboard-shortcuts-settings";
+import { SHORTCUT_LABELS } from "@/lib/keyboard-shortcuts";
+import { SidebarToggleIcon } from "@/components/sidebar-toggle-icon";
 
 export default function SettingsPage() {
   const { isOpen, toggle } = useSidebarContext();
@@ -20,7 +23,8 @@ export default function SettingsPage() {
             <button
               onClick={toggle}
               className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition"
-              title="Open sidebar"
+              title={`Open sidebar (${SHORTCUT_LABELS.TOGGLE_SIDEBAR})`}
+              aria-label={`Open sidebar (${SHORTCUT_LABELS.TOGGLE_SIDEBAR})`}
             >
               <SidebarToggleIcon />
             </button>
@@ -34,27 +38,11 @@ export default function SettingsPage() {
           <div className="max-w-2xl">
             {activeCategory === "secrets" && <SecretsSettings />}
             {activeCategory === "models" && <ModelsSettings />}
+            {activeCategory === "keyboard-shortcuts" && <KeyboardShortcutsSettings />}
             {activeCategory === "data-controls" && <DataControlsSettings />}
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-function SidebarToggleIcon() {
-  return (
-    <svg
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <line x1="9" y1="3" x2="9" y2="21" />
-    </svg>
   );
 }

@@ -16,9 +16,11 @@ import { useSessionSocket } from "@/hooks/use-session-socket";
 import { SafeMarkdown } from "@/components/safe-markdown";
 import { ToolCallGroup } from "@/components/tool-call-group";
 import { useSidebarContext } from "@/components/sidebar-layout";
+import { SidebarToggleIcon } from "@/components/sidebar-toggle-icon";
 import { SessionRightSidebar } from "@/components/session-right-sidebar";
 import { ActionBar } from "@/components/action-bar";
 import { copyToClipboard, formatModelNameLower } from "@/lib/format";
+import { SHORTCUT_LABELS } from "@/lib/keyboard-shortcuts";
 import {
   DEFAULT_MODEL,
   getDefaultReasoningEffort,
@@ -238,9 +240,13 @@ function SessionPageContent() {
 
     sendPrompt(prompt, selectedModel, reasoningEffort);
     setPrompt("");
+    // Revalidate sidebar so this session bubbles to the top
+    mutate("/api/sessions");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return;
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -486,7 +492,8 @@ function SessionContent({
               <button
                 onClick={toggle}
                 className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition"
-                title="Open sidebar"
+                title={`Open sidebar (${SHORTCUT_LABELS.TOGGLE_SIDEBAR})`}
+                aria-label={`Open sidebar (${SHORTCUT_LABELS.TOGGLE_SIDEBAR})`}
               >
                 <SidebarToggleIcon />
               </button>
@@ -620,7 +627,16 @@ function SessionContent({
                   type="submit"
                   disabled={!prompt.trim() || isProcessing}
                   className="p-2 text-secondary-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition"
-                  title={isProcessing && prompt.trim() ? "Wait for execution to complete" : "Send"}
+                  title={
+                    isProcessing && prompt.trim()
+                      ? "Wait for execution to complete"
+                      : `Send (${SHORTCUT_LABELS.SEND_PROMPT})`
+                  }
+                  aria-label={
+                    isProcessing && prompt.trim()
+                      ? "Wait for execution to complete"
+                      : `Send (${SHORTCUT_LABELS.SEND_PROMPT})`
+                  }
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -696,23 +712,6 @@ function SessionContent({
         </form>
       </footer>
     </div>
-  );
-}
-
-function SidebarToggleIcon() {
-  return (
-    <svg
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <line x1="9" y1="3" x2="9" y2="21" />
-    </svg>
   );
 }
 
