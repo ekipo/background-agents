@@ -5,14 +5,7 @@ DATABASE_NAME="${1:?Usage: d1-migrate.sh <database-name> [migrations-dir]}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MIGRATIONS_DIR="${2:-$SCRIPT_DIR/../terraform/d1/migrations}"
 
-# Resolve wrangler: prefer local node_modules binary, fall back to npx
-if [ -x "./node_modules/.bin/wrangler" ]; then
-  WRANGLER="./node_modules/.bin/wrangler"
-elif [ -x "$SCRIPT_DIR/../node_modules/.bin/wrangler" ]; then
-  WRANGLER="$SCRIPT_DIR/../node_modules/.bin/wrangler"
-else
-  WRANGLER="npx wrangler"
-fi
+WRANGLER="npx wrangler"
 
 # 1. Ensure tracking table exists
 $WRANGLER d1 execute "$DATABASE_NAME" --remote \
