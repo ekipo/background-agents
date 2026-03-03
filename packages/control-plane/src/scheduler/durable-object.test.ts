@@ -41,6 +41,7 @@ function createMockStore() {
     incrementConsecutiveFailures: vi.fn().mockResolvedValue(1),
     resetConsecutiveFailures: vi.fn().mockResolvedValue(undefined),
     autoPause: vi.fn().mockResolvedValue(undefined),
+    update: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -88,7 +89,7 @@ function createEnv(overrides?: Partial<Env>): Env {
   } as Env;
 }
 
-function createSchedulerDO(env?: Env): SchedulerDO {
+function createSchedulerDO(env?: Env): InstanceType<typeof SchedulerDO> {
   const ctx = { storage: {} } as unknown as DurableObjectState;
   return new SchedulerDO(ctx, env ?? createEnv());
 }
@@ -197,6 +198,12 @@ describe("SchedulerDO", () => {
           status: "skipped",
           skip_reason: "concurrent_run_active",
         })
+      );
+
+      // Verify next_run_at was advanced to prevent repeat skip inserts
+      expect(mockStore.update).toHaveBeenCalledWith(
+        sampleAutomation.id,
+        expect.objectContaining({ next_run_at: expect.any(Number) })
       );
     });
 
