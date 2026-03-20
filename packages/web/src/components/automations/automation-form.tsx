@@ -11,7 +11,6 @@ import { useRepos } from "@/hooks/use-repos";
 import { useBranches } from "@/hooks/use-branches";
 import { useEnabledModels } from "@/hooks/use-enabled-models";
 import { formatModelNameLower } from "@/lib/format";
-import { getRepoSelectorOption, getSelectedRepoDisplayName } from "@/lib/repo-display";
 import { Combobox, type ComboboxGroup } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,12 +25,33 @@ import {
 import { RepoIcon, BranchIcon, ModelIcon, ChevronDownIcon } from "@/components/ui/icons";
 import { CronPicker } from "./cron-picker";
 
+const COMMON_TIMEZONES = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Paris",
+  "Asia/Tokyo",
+  "Asia/Shanghai",
+  "Asia/Kolkata",
+  "Australia/Sydney",
+];
+const COMMON_SET = new Set(COMMON_TIMEZONES);
 const ALL_TIMEZONES = Intl.supportedValuesOf("timeZone");
 const DEFAULT_REASONING_VALUE = "__default__";
-const ALL_TIMEZONE_OPTIONS = ALL_TIMEZONES.map((tz) => ({
-  value: tz,
-  label: tz.replace(/_/g, " "),
-}));
+
+const toOption = (tz: string) => ({ value: tz, label: tz.replace(/_/g, " ") });
+
+const TIMEZONE_GROUPS: ComboboxGroup[] = [
+  { category: "Common", options: COMMON_TIMEZONES.map(toOption) },
+  {
+    category: "All Timezones",
+    options: ALL_TIMEZONES.filter((tz) => !COMMON_SET.has(tz)).map(toOption),
+  },
+];
 
 export interface AutomationFormValues {
   name: string;
@@ -107,7 +127,7 @@ export function AutomationForm({ mode, initialValues, onSubmit, submitting }: Au
   };
 
   const selectedRepoObj = repos.find((r) => r.fullName === selectedRepo);
-  const displayRepoName = getSelectedRepoDisplayName(selectedRepoObj, "Select repository");
+  const displayRepoName = selectedRepoObj ? selectedRepoObj.name : "Select repository";
   const reasoningConfig = getReasoningConfig(model);
 
   return (
@@ -131,7 +151,11 @@ export function AutomationForm({ mode, initialValues, onSubmit, submitting }: Au
         <Combobox
           value={selectedRepo}
           onChange={handleRepoChange}
-          items={repos.map(getRepoSelectorOption)}
+          items={repos.map((repo) => ({
+            value: repo.fullName,
+            label: repo.name,
+            description: `${repo.owner}${repo.private ? " \u2022 private" : ""}`,
+          }))}
           searchable
           searchPlaceholder="Search repositories..."
           filterFn={(option, query) =>
@@ -243,7 +267,7 @@ export function AutomationForm({ mode, initialValues, onSubmit, submitting }: Au
         <Combobox
           value={scheduleTz}
           onChange={setScheduleTz}
-          items={ALL_TIMEZONE_OPTIONS}
+          items={TIMEZONE_GROUPS}
           maxDisplayed={20}
           searchable
           searchPlaceholder="Search timezones..."
