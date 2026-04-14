@@ -6,6 +6,9 @@ resource "null_resource" "daytona_snapshot" {
   triggers = {
     source_hash   = var.source_hash
     snapshot_name = var.snapshot_name
+    api_url       = var.api_url
+    target        = var.target
+    script_hash   = filesha256("${path.module}/scripts/build-snapshot.sh")
   }
 
   provisioner "local-exec" {
