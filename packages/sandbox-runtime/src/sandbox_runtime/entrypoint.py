@@ -305,10 +305,15 @@ class SandboxSupervisor:
             except Exception as e:
                 self.log.warn("opencode.symlink_error", exc=e)
 
-        # Minimal package.json
+        # List dependencies in package.json so OpenCode sees them as declared.
+        # The node_modules symlink already points to the global install, so npm
+        # finds them satisfied without a network fetch.
         package_json = opencode_dir / "package.json"
         if not package_json.exists():
-            package_json.write_text('{"name": "opencode-tools", "type": "module"}')
+            package_json.write_text(
+                '{"name": "opencode-tools", "type": "module",'
+                ' "dependencies": {"@opencode-ai/plugin": "*", "zod": "*"}}'
+            )
 
     def _install_bin_scripts(self) -> None:
         """Install standalone CLI scripts into /usr/local/bin.
