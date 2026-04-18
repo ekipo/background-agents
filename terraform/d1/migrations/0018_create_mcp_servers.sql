@@ -9,5 +9,8 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   repo_scope TEXT,
   enabled    INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  CHECK((type = 'stdio' AND command IS NOT NULL) OR (type = 'remote' AND url IS NOT NULL))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_name ON mcp_servers(name);
