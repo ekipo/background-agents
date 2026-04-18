@@ -1,13 +1,13 @@
 import useSWR from "swr";
 import { useSession } from "next-auth/react";
-import type { McpServerConfig } from "@open-inspect/shared";
+import type { McpServerConfig, McpServerMetadata } from "@open-inspect/shared";
 
 const MCP_SERVERS_KEY = "/api/mcp-servers";
 
 export function useMcpServers() {
   const { data: session } = useSession();
 
-  const { data, isLoading, mutate } = useSWR<McpServerConfig[]>(session ? MCP_SERVERS_KEY : null);
+  const { data, isLoading, mutate } = useSWR<McpServerMetadata[]>(session ? MCP_SERVERS_KEY : null);
 
   return {
     servers: data ?? [],
@@ -18,7 +18,7 @@ export function useMcpServers() {
 
 export async function createMcpServer(
   config: Omit<McpServerConfig, "id">
-): Promise<McpServerConfig> {
+): Promise<McpServerMetadata> {
   const response = await fetch(MCP_SERVERS_KEY, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -34,7 +34,7 @@ export async function createMcpServer(
 export async function updateMcpServer(
   id: string,
   patch: Partial<McpServerConfig>
-): Promise<McpServerConfig> {
+): Promise<McpServerMetadata> {
   const response = await fetch(`${MCP_SERVERS_KEY}/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

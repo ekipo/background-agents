@@ -188,7 +188,7 @@ const CHILD_SANDBOX_TIMEOUT_SECONDS = 3600; // 1 hour (vs default 2 hours)
  * Keeps the lifecycle manager free of direct D1Database dependencies.
  */
 export interface McpServerLookup {
-  getForSession(repoOwner: string, repoName: string): Promise<McpServerConfig[]>;
+  getDecryptedForSession(repoOwner: string, repoName: string): Promise<McpServerConfig[]>;
 }
 
 // ==================== Repo Image Lookup ====================
@@ -507,7 +507,7 @@ export class SandboxLifecycleManager {
   private async loadMcpServers(session: SessionRow): Promise<McpServerConfig[] | undefined> {
     try {
       if (!this.config.mcpServerLookup) return undefined;
-      const servers = await this.config.mcpServerLookup.getForSession(
+      const servers = await this.config.mcpServerLookup.getDecryptedForSession(
         session.repo_owner,
         session.repo_name
       );

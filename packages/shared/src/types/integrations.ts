@@ -61,7 +61,7 @@ export type LinearGlobalConfig = IntegrationSettingsMap["linear"]["global"];
 export type CodeServerGlobalConfig = IntegrationSettingsMap["code-server"]["global"];
 export type SandboxGlobalConfig = IntegrationSettingsMap["sandbox"]["global"];
 
-/** MCP server configuration. */
+/** MCP server configuration (full, with decrypted credentials). Internal use only. */
 export interface McpServerConfig {
   id: string;
   name: string;
@@ -76,6 +76,25 @@ export interface McpServerConfig {
    * Per OpenCode MCP spec: https://opencode.ai/docs/mcp-servers/#remote
    */
   headers?: Record<string, string>;
+  repoScopes?: string[] | null;
+  enabled: boolean;
+}
+
+/**
+ * MCP server metadata returned by list/get API endpoints.
+ * Never contains decrypted credentials (env/headers) — only boolean indicators.
+ * Mirrors RepoSecretsStore.listSecretKeys() pattern.
+ */
+export interface McpServerMetadata {
+  id: string;
+  name: string;
+  type: "stdio" | "remote";
+  command?: string[];
+  url?: string;
+  /** True if the server has environment variables configured (stdio only). */
+  hasEnv: boolean;
+  /** True if the server has HTTP headers configured (remote only). */
+  hasHeaders: boolean;
   repoScopes?: string[] | null;
   enabled: boolean;
 }

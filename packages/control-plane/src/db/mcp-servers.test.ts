@@ -86,6 +86,13 @@ const remoteRow = {
   updated_at: 1001,
 };
 
+const remoteRowWithHeaders = {
+  ...remoteRow,
+  id: "ghi789",
+  name: "remote-with-auth",
+  env: JSON.stringify({ Authorization: "Bearer sk-test-123", "X-Api-Key": "key-456" }),
+};
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("McpServerStore", () => {
@@ -118,14 +125,18 @@ describe("McpServerStore", () => {
   });
 
   describe("get()", () => {
-    it("returns config when row found", async () => {
+    it("returns metadata (no credentials) when row found", async () => {
       const { db } = createFakeD1({ firstResult: sampleRow });
       const store = new McpServerStore(db);
       const result = await store.get("abc123");
       expect(result).not.toBeNull();
       expect(result!.name).toBe("playwright");
       expect(result!.command).toEqual(["npx", "-y", "@playwright/mcp"]);
-      expect(result!.env).toEqual({ DEBUG: "1" });
+      expect(result!.hasEnv).toBe(true);
+      expect(result!.hasHeaders).toBe(false);
+      // Credentials should NOT be exposed
+      expect("env" in result!).toBe(false);
+      expect("headers" in result!).toBe(false);
     });
 
     it("returns null when not found", async () => {
@@ -144,13 +155,24 @@ describe("McpServerStore", () => {
       expect(result!.command).toEqual(["not-json"]);
     });
 
-    it("handles corrupted JSON in env gracefully", async () => {
-      const corruptRow = { ...sampleRow, env: "broken{" };
-      const { db } = createFakeD1({ firstResult: corruptRow });
+    it("reports hasEnv=false when env is empty", async () => {
+      const emptyEnvRow = { ...sampleRow, env: "{}" };
+      const { db } = createFakeD1({ firstResult: emptyEnvRow });
       const store = new McpServerStore(db);
       const result = await store.get("abc123");
-      // Should fall back to empty object
-      expect(result!.env).toEqual({});
+      expect(result!.hasEnv).toBe(false);
+    });
+
+    it("reports hasHeaders=true for remote server with env column content", async () => {
+      const remoteWithHeaders = {
+        ...remoteRow,
+        env: JSON.stringify({ Authorization: "Bearer tok" }),
+      };
+      const { db } = createFakeD1({ firstResult: remoteWithHeaders });
+      const store = new McpServerStore(db);
+      const result = await store.get("def456");
+      expect(result!.hasHeaders).toBe(true);
+      expect(result!.hasEnv).toBe(false);
     });
   });
 
@@ -259,20 +281,45 @@ describe("McpServerStore", () => {
     });
   });
 
-  describe("getForSession()", () => {
+  describe("getDecryptedForSession()", () => {
     it("returns global and matching repo-scoped servers", async () => {
       const { db } = createFakeD1({ allResults: [sampleRow, remoteRow] });
       const store = new McpServerStore(db);
-      const results = await store.getForSession("carboncopyinc", "habakkuk");
+      const results = await store.getDecryptedForSession("carboncopyinc", "habakkuk");
       expect(results).toHaveLength(2); // global + matching scoped
     });
 
     it("excludes servers scoped to different repos", async () => {
       const { db } = createFakeD1({ allResults: [sampleRow, remoteRow] });
       const store = new McpServerStore(db);
-      const results = await store.getForSession("bencered", "dom");
+      const results = await store.getDecryptedForSession("bencered", "dom");
       expect(results).toHaveLength(1); // only the global server
       expect(results[0].name).toBe("playwright");
+    });
+
+    it("returns headers (not env) for remote servers", async () => {
+      const { db } = createFakeD1({ allResults: [remoteRowWithHeaders] });
+      const store = new McpServerStore(db);
+      const results = await store.getDecryptedForSession("carboncopyinc", "habakkuk");
+      expect(results).toHaveLength(1);
+      const remote = results[0];
+      expect(remote.type).toBe("remote");
+      expect(remote.headers).toEqual({
+        Authorization: "Bearer sk-test-123",
+        "X-Api-Key": "key-456",
+      });
+      expect(remote.env).toBeUndefined();
+    });
+
+    it("returns env (not headers) for stdio servers", async () => {
+      const { db } = createFakeD1({ allResults: [sampleRow] });
+      const store = new McpServerStore(db);
+      const results = await store.getDecryptedForSession("any", "repo");
+      expect(results).toHaveLength(1);
+      const stdio = results[0];
+      expect(stdio.type).toBe("stdio");
+      expect(stdio.env).toEqual({ DEBUG: "1" });
+      expect(stdio.headers).toBeUndefined();
     });
   });
 
@@ -342,31 +389,28 @@ describe("McpServerStore", () => {
     });
   });
 
-  describe("encryption / decryption", () => {
+  describe("encryption / decryption (via getDecryptedForSession)", () => {
     it("no-key path returns plaintext env as-is", async () => {
-      const { db } = createFakeD1({ firstResult: sampleRow });
+      const { db } = createFakeD1({ allResults: [sampleRow] });
       const store = new McpServerStore(db); // no encryption key
-      const result = await store.get("abc123");
-      expect(result!.env).toEqual({ DEBUG: "1" });
+      const results = await store.getDecryptedForSession("any", "repo");
+      expect(results[0].env).toEqual({ DEBUG: "1" });
     });
 
     it("falls back to plaintext when decryption fails (pre-encryption row)", async () => {
-      // Row has plaintext JSON env but store has an encryption key
-      const { db } = createFakeD1({ firstResult: sampleRow });
-      // Use a fake key that will cause decryptToken to throw
+      const { db } = createFakeD1({ allResults: [sampleRow] });
       const store = new McpServerStore(db, "bm90YXJlYWxrZXlub3RhcmVhbGtleW5vdGFyZWFsa2V5eA==");
-      const result = await store.get("abc123");
-      // Should fall back gracefully: env has values, so treated as pre-encryption plaintext
-      expect(result!.env).toEqual({ DEBUG: "1" });
+      const results = await store.getDecryptedForSession("any", "repo");
+      expect(results[0].env).toEqual({ DEBUG: "1" });
     });
 
     it("returns empty env and logs error when both decryption and JSON parse fail", async () => {
-      // Row has garbage that is neither valid ciphertext nor valid JSON
-      const { db } = createFakeD1({ firstResult: { ...sampleRow, env: "notjson_notcipher" } });
+      const { db } = createFakeD1({
+        allResults: [{ ...sampleRow, env: "notjson_notcipher" }],
+      });
       const store = new McpServerStore(db, "bm90YXJlYWxrZXlub3RhcmVhbGtleW5vdGFyZWFsa2V5eA==");
-      const result = await store.get("abc123");
-      // Must not throw; returns empty env
-      expect(result!.env).toEqual({});
+      const results = await store.getDecryptedForSession("any", "repo");
+      expect(results[0].env).toEqual({});
     });
   });
 });

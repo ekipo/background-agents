@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { McpServerConfig } from "@open-inspect/shared";
+import { toast } from "sonner";
+import type { McpServerConfig, McpServerMetadata } from "@open-inspect/shared";
 import {
   useMcpServers,
   createMcpServer,
@@ -9,8 +10,24 @@ import {
   deleteMcpServer,
 } from "@/hooks/use-mcp-servers";
 import { useRepos } from "@/hooks/use-repos";
-import { PlusIcon, TerminalIcon, GlobeIcon, ErrorIcon } from "@/components/ui/icons";
+import { PlusIcon, TerminalIcon, GlobeIcon, ChevronRightIcon } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { RadioCard } from "@/components/ui/form-controls";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type ScopeMode = "global" | "selected";
 
@@ -36,33 +53,21 @@ const emptyForm: FormState = {
   enabled: true,
 };
 
-function configToForm(config: McpServerConfig): FormState {
+function metadataToForm(metadata: McpServerMetadata): FormState {
   return {
-    name: config.name,
-    type: config.type,
+    name: metadata.name,
+    type: metadata.type,
     command:
-      config.command
+      metadata.command
         ?.map((t) =>
-          // Quote any token containing whitespace or shell-special chars so the
-          // display string round-trips correctly through parseCommand().
-          // The command array is always the canonical source of truth.
           /[\s$`#!&|;<>(){}\\"]/.test(t) ? `"${t.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : t
         )
         .join(" ") ?? "",
-    url: config.url ?? "",
-    // For remote servers, the relevant key/value pairs are HTTP headers (McpServerConfig.headers).
-    // For stdio servers, they are process environment variables (McpServerConfig.env).
-    env: (() => {
-      const pairs = config.type === "remote" ? config.headers : config.env;
-      return pairs && Object.keys(pairs).length > 0
-        ? Object.entries(pairs)
-            .map(([k, v]) => `${k}=${v}`)
-            .join("\n")
-        : "";
-    })(),
-    repoScopes: config.repoScopes ?? [],
-    scopeMode: config.repoScopes?.length ? "selected" : "global",
-    enabled: config.enabled,
+    url: metadata.url ?? "",
+    env: "",
+    repoScopes: metadata.repoScopes ?? [],
+    scopeMode: metadata.repoScopes?.length ? "selected" : "global",
+    enabled: metadata.enabled,
   };
 }
 
@@ -112,24 +117,30 @@ interface McpServerFormProps {
   repos: { fullName: string; private?: boolean }[];
   loadingRepos: boolean;
   radioPrefix: string;
+  hasExistingCredentials?: boolean;
 }
 
-function McpServerForm({ form, setForm, repos, loadingRepos, radioPrefix }: McpServerFormProps) {
+function McpServerForm({
+  form,
+  setForm,
+  repos,
+  loadingRepos,
+  radioPrefix,
+  hasExistingCredentials,
+}: McpServerFormProps) {
   return (
     <>
       <div>
-        <label className="block text-sm font-medium text-foreground mb-1">Name</label>
-        <input
-          type="text"
+        <Label className="mb-1">Name</Label>
+        <Input
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
           placeholder="e.g. playwright, context7"
-          className="w-full px-3 py-2 text-sm border border-border bg-input text-foreground rounded-sm focus:outline-none focus:border-foreground/30"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-foreground mb-1">Type</label>
+        <Label className="mb-1">Type</Label>
         <div className="flex gap-2">
           <button
             onClick={() => setForm({ ...form, type: "remote" })}
@@ -158,24 +169,21 @@ function McpServerForm({ form, setForm, repos, loadingRepos, radioPrefix }: McpS
 
       {form.type === "remote" ? (
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1">URL</label>
-          <input
+          <Label className="mb-1">URL</Label>
+          <Input
             type="url"
             value={form.url}
             onChange={(e) => setForm({ ...form, url: e.target.value })}
             placeholder="https://mcp.example.com/sse"
-            className="w-full px-3 py-2 text-sm border border-border bg-input text-foreground rounded-sm focus:outline-none focus:border-foreground/30"
           />
         </div>
       ) : (
         <div>
-          <label className="block text-sm font-medium text-foreground mb-1">Command</label>
-          <input
-            type="text"
+          <Label className="mb-1">Command</Label>
+          <Input
             value={form.command}
             onChange={(e) => setForm({ ...form, command: e.target.value })}
             placeholder="npx -y @playwright/mcp"
-            className="w-full px-3 py-2 text-sm border border-border bg-input text-foreground rounded-sm focus:outline-none focus:border-foreground/30"
           />
           <p className="text-xs text-muted-foreground mt-1">
             Space-separated command and arguments. Use quotes for arguments with spaces.
@@ -184,54 +192,48 @@ function McpServerForm({ form, setForm, repos, loadingRepos, radioPrefix }: McpS
       )}
 
       <div>
-        <label className="block text-sm font-medium text-foreground mb-1">
+        <Label className="mb-1">
           {form.type === "remote" ? "HTTP Headers" : "Environment Variables"}{" "}
           <span className="text-muted-foreground font-normal">(optional)</span>
-        </label>
-        <textarea
+        </Label>
+        {hasExistingCredentials && !form.env && (
+          <p className="text-xs text-muted-foreground mb-1">
+            Credentials are configured. Enter new values below to replace them, or leave empty to
+            keep existing.
+          </p>
+        )}
+        <Textarea
           value={form.env}
           onChange={(e) => setForm({ ...form, env: e.target.value })}
           placeholder={
-            form.type === "remote"
-              ? "Authorization=Bearer <token>\nX-Custom-Header=value"
-              : "KEY=value\nANOTHER_KEY=value"
+            hasExistingCredentials
+              ? "Enter new values to replace existing credentials"
+              : form.type === "remote"
+                ? "Authorization=Bearer <token>\nX-Custom-Header=value"
+                : "KEY=value\nANOTHER_KEY=value"
           }
           rows={3}
-          className="w-full px-3 py-2 text-sm border border-border bg-input text-foreground rounded-sm focus:outline-none focus:border-foreground/30 font-mono"
+          className="font-mono"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-foreground mb-2">Availability</label>
+        <Label className="mb-2">Availability</Label>
         <div className="space-y-2 mb-2">
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name={`scope-mode-${radioPrefix}`}
-              checked={form.scopeMode === "global"}
-              onChange={() => setForm({ ...form, scopeMode: "global", repoScopes: [] })}
-              className="mt-0.5"
-            />
-            <div>
-              <span className="text-sm text-foreground">All repositories</span>
-              <p className="text-xs text-muted-foreground">Available in every agent session</p>
-            </div>
-          </label>
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name={`scope-mode-${radioPrefix}`}
-              checked={form.scopeMode === "selected"}
-              onChange={() => setForm({ ...form, scopeMode: "selected" })}
-              className="mt-0.5"
-            />
-            <div>
-              <span className="text-sm text-foreground">Selected repositories only</span>
-              <p className="text-xs text-muted-foreground">
-                Only available in sessions for chosen repos
-              </p>
-            </div>
-          </label>
+          <RadioCard
+            name={`scope-mode-${radioPrefix}`}
+            checked={form.scopeMode === "global"}
+            onChange={() => setForm({ ...form, scopeMode: "global", repoScopes: [] })}
+            label="All repositories"
+            description="Available in every agent session"
+          />
+          <RadioCard
+            name={`scope-mode-${radioPrefix}`}
+            checked={form.scopeMode === "selected"}
+            onChange={() => setForm({ ...form, scopeMode: "selected" })}
+            label="Selected repositories only"
+            description="Only available in sessions for chosen repos"
+          />
         </div>
 
         {form.scopeMode === "selected" && (
@@ -252,16 +254,14 @@ function McpServerForm({ form, setForm, repos, loadingRepos, radioPrefix }: McpS
                       key={repo.fullName}
                       className="flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition cursor-pointer text-sm"
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={isChecked}
-                        onChange={() => {
+                        onCheckedChange={() => {
                           const next = isChecked
                             ? form.repoScopes.filter((r) => r !== fullName)
                             : [...form.repoScopes, fullName];
                           setForm({ ...form, repoScopes: next });
                         }}
-                        className="rounded border-border"
                       />
                       <span className="text-foreground">{repo.fullName}</span>
                       {repo.private && (
@@ -281,18 +281,17 @@ function McpServerForm({ form, setForm, repos, loadingRepos, radioPrefix }: McpS
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
+      <label
+        htmlFor={`mcp-enabled-${radioPrefix}`}
+        className="flex items-center justify-between cursor-pointer"
+      >
+        <span className="text-sm text-foreground">Enabled</span>
+        <Switch
           id={`mcp-enabled-${radioPrefix}`}
           checked={form.enabled}
-          onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
-          className="rounded border-border"
+          onCheckedChange={(checked) => setForm({ ...form, enabled: checked })}
         />
-        <label htmlFor={`mcp-enabled-${radioPrefix}`} className="text-sm text-foreground">
-          Enabled
-        </label>
-      </div>
+      </label>
     </>
   );
 }
@@ -303,59 +302,54 @@ export function McpServersSettings() {
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  // Sync SWR background refreshes into the open edit form
+  // Sync SWR background refreshes into the open edit form (non-credential fields only)
   useEffect(() => {
     if (editing && editing !== "new") {
       const current = servers.find((s) => s.id === editing);
-      if (current) setForm(configToForm(current));
+      if (current) setForm(metadataToForm(current));
     }
-    // setForm is stable (useState setter), configToForm is a module-level pure fn
   }, [servers, editing]);
 
   function startNew() {
     setExpanded(null);
     setForm(emptyForm);
     setEditing("new");
-    setError(null);
   }
 
-  function startEdit(server: McpServerConfig) {
+  function startEdit(server: McpServerMetadata) {
     if (expanded === server.id) {
       setExpanded(null);
       setEditing(null);
     } else {
-      setForm(configToForm(server));
+      setForm(metadataToForm(server));
       setEditing(server.id);
       setExpanded(server.id);
     }
-    setError(null);
   }
 
   function cancel() {
     setEditing(null);
     setExpanded(null);
-    setError(null);
   }
 
   async function save() {
     if (!form.name.trim()) {
-      setError("Name is required");
+      toast.error("Name is required");
       return;
     }
     if (form.type === "remote" && !form.url.trim()) {
-      setError("URL is required for remote servers");
+      toast.error("URL is required for remote servers");
       return;
     }
     if (form.type === "stdio" && !form.command.trim()) {
-      setError("Command is required for stdio servers");
+      toast.error("Command is required for stdio servers");
       return;
     }
 
     setSaving(true);
-    setError(null);
 
     try {
       const payload: Partial<McpServerConfig> = {
@@ -368,45 +362,55 @@ export function McpServersSettings() {
 
       if (form.type === "remote") {
         payload.url = form.url.trim();
-        // Remote servers use HTTP headers for auth (e.g. Authorization: Bearer <token>)
-        payload.headers = parseEnv(form.env);
+        if (form.env.trim() || editing === "new") {
+          payload.headers = parseEnv(form.env);
+        }
       } else {
         payload.command = parseCommand(form.command);
-        payload.env = parseEnv(form.env);
+        if (form.env.trim() || editing === "new") {
+          payload.env = parseEnv(form.env);
+        }
       }
 
       if (editing === "new") {
         await createMcpServer(payload as Omit<McpServerConfig, "id">);
+        toast.success("MCP server created");
       } else if (editing) {
         await updateMcpServer(editing, payload);
+        toast.success("MCP server updated");
       }
 
       setEditing(null);
+      setExpanded(null);
       mutate();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      toast.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm("Delete this MCP server? This cannot be undone.")) return;
     try {
       await deleteMcpServer(id);
       mutate();
-      if (editing === id) setEditing(null);
+      if (editing === id) {
+        setEditing(null);
+        setExpanded(null);
+      }
+      toast.success("MCP server deleted");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete");
+      toast.error(err instanceof Error ? err.message : "Failed to delete");
     }
+    setDeleteTarget(null);
   }
 
-  async function handleToggle(server: McpServerConfig) {
+  async function handleToggle(server: McpServerMetadata) {
     try {
       await updateMcpServer(server.id, { enabled: !server.enabled });
       mutate();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to toggle");
+      toast.error(err instanceof Error ? err.message : "Failed to toggle");
     }
   }
 
@@ -424,13 +428,6 @@ export function McpServersSettings() {
       <p className="text-sm text-muted-foreground mb-6">
         Configure Model Context Protocol servers that are available to agent sessions.
       </p>
-
-      {error && (
-        <div className="flex items-center gap-2 text-sm text-red-400 mb-4 px-3 py-2 bg-red-400/10 rounded">
-          <ErrorIcon className="w-4 h-4 flex-shrink-0" />
-          {error}
-        </div>
-      )}
 
       {/* New server form */}
       {editing === "new" && (
@@ -497,17 +494,11 @@ export function McpServersSettings() {
                   onClick={() => startEdit(server)}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <svg
+                    <ChevronRightIcon
                       className={`w-3 h-3 text-muted-foreground flex-shrink-0 transition-transform ${
                         isExpanded ? "rotate-90" : ""
                       }`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
+                    />
                     {server.type === "remote" ? (
                       <GlobeIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                     ) : (
@@ -537,14 +528,13 @@ export function McpServersSettings() {
                     className="flex items-center gap-1 flex-shrink-0"
                     onClick={(e) => e.stopPropagation()}
                   >
+                    <Switch
+                      checked={server.enabled}
+                      onCheckedChange={() => handleToggle(server)}
+                      aria-label={server.enabled ? "Disable" : "Enable"}
+                    />
                     <button
-                      onClick={() => handleToggle(server)}
-                      className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition"
-                    >
-                      {server.enabled ? "Disable" : "Enable"}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(server.id)}
+                      onClick={() => setDeleteTarget(server.id)}
                       className="px-2 py-1 text-xs text-red-400 hover:text-red-300 transition"
                     >
                       Delete
@@ -561,6 +551,7 @@ export function McpServersSettings() {
                       repos={repos}
                       loadingRepos={loadingRepos}
                       radioPrefix={server.id}
+                      hasExistingCredentials={server.hasEnv || server.hasHeaders}
                     />
                     <div className="flex gap-2 pt-2">
                       <Button onClick={save} disabled={saving} size="sm">
@@ -577,6 +568,25 @@ export function McpServersSettings() {
           })}
         </div>
       )}
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete MCP server</AlertDialogTitle>
+            <AlertDialogDescription>Are you sure? This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteTarget && handleDelete(deleteTarget)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

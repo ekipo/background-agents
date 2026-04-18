@@ -557,17 +557,11 @@ class SandboxManager:
         if isinstance(session_config, dict):
             repo_owner = session_config.get("repo_owner", "")
             repo_name = session_config.get("repo_name", "")
-            provider = session_config.get("provider", "anthropic")
-            model = session_config.get("model", "claude-sonnet-4-6")
-            session_id = session_config.get("session_id", "")
-            branch = session_config.get("branch")
+            session_config_json = json.dumps(session_config)
         else:
             repo_owner = session_config.repo_owner
             repo_name = session_config.repo_name
-            provider = session_config.provider
-            model = session_config.model
-            session_id = session_config.session_id
-            branch = session_config.branch
+            session_config_json = session_config.model_dump_json()
 
         # Use provided sandbox_id or generate one
         if not sandbox_id:
@@ -591,16 +585,7 @@ class SandboxManager:
                 "REPO_OWNER": repo_owner,
                 "REPO_NAME": repo_name,
                 "RESTORED_FROM_SNAPSHOT": "true",  # Signal to skip git clone
-                "SESSION_CONFIG": json.dumps(
-                    {
-                        "session_id": session_id,
-                        "repo_owner": repo_owner,
-                        "repo_name": repo_name,
-                        "provider": provider,
-                        "model": model,
-                        **({"branch": branch} if branch else {}),
-                    }
-                ),
+                "SESSION_CONFIG": session_config_json,
             }
         )
 

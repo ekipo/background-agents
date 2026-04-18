@@ -84,6 +84,7 @@ async function handleCreateMcpServer(
       command: body.command,
       url: body.url,
       env: body.env,
+      headers: body.headers,
       repoScopes: body.repoScopes ?? null,
       enabled: body.enabled !== false,
     });

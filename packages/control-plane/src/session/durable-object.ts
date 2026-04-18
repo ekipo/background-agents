@@ -697,7 +697,8 @@ export class SessionDO extends DurableObject<Env> {
     if (this.env.DB) {
       const mcpStore = new McpServerStore(this.env.DB, this.env.REPO_SECRETS_ENCRYPTION_KEY);
       mcpServerLookup = {
-        getForSession: (repoOwner, repoName) => mcpStore.getForSession(repoOwner, repoName),
+        getDecryptedForSession: (repoOwner, repoName) =>
+          mcpStore.getDecryptedForSession(repoOwner, repoName),
       };
     }
 

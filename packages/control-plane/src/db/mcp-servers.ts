@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "@open-inspect/shared";
+import type { McpServerConfig, McpServerMetadata } from "@open-inspect/shared";
 import { encryptToken, decryptToken } from "../auth/crypto";
 import { createLogger } from "../logger";
 
@@ -74,6 +74,26 @@ function rowToConfig(row: McpServerRow, payload: Record<string, string>): McpSer
 }
 
 /**
+ * Convert a DB row to metadata (no decrypted credentials).
+ * The `env` column is checked for non-empty content to set the boolean indicators.
+ */
+function rowToMetadata(row: McpServerRow): McpServerMetadata {
+  // Check if the env column has any meaningful content (not empty JSON or empty string)
+  const hasCredentials = row.env !== "" && row.env !== "{}" && row.env !== "null";
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type as "stdio" | "remote",
+    command: safeJsonParseCommand(row.command),
+    url: row.url ?? undefined,
+    hasEnv: row.type === "stdio" && hasCredentials,
+    hasHeaders: row.type === "remote" && hasCredentials,
+    repoScopes: parseRepoScopes(row.repo_scope),
+    enabled: row.enabled === 1,
+  };
+}
+
+/**
  * Check if an error message indicates a D1 UNIQUE constraint violation.
  *
  * NOTE: D1 does not expose structured error codes, so we string-match against the
@@ -92,10 +112,13 @@ export class McpServerStore {
     private readonly encryptionKey?: string
   ) {}
 
-  /** Encrypt env dict to a stored string. Falls back to plaintext if no key. */
+  /** Encrypt env dict to a stored string. Falls back to plaintext if no key.
+   *  Empty dicts are stored as plaintext "{}" (no encryption) so that
+   *  rowToMetadata() can detect "no credentials" without decrypting.
+   */
   private async encryptEnv(env: Record<string, string>): Promise<string> {
     const plain = JSON.stringify(env);
-    if (!this.encryptionKey) return plain;
+    if (!this.encryptionKey || Object.keys(env).length === 0) return plain;
     return encryptToken(plain, this.encryptionKey);
   }
 
@@ -140,24 +163,40 @@ export class McpServerStore {
     return rowToConfig(row, env);
   }
 
-  async list(repoScope?: string): Promise<McpServerConfig[]> {
-    // NOTE: We load all rows then filter in-memory because repo_scope is stored as
-    // JSON-serialised array, making SQL-level filtering awkward in D1/SQLite without
-    // JSON_EACH. At expected scale (<100 MCP servers per deployment) this is fine.
-    // TODO: push down to SQL once D1 supports JSON_EACH in WHERE clauses.
+  /**
+   * List MCP server metadata (no decrypted credentials).
+   * Safe for API responses — never exposes env vars or headers.
+   */
+  async list(repoScope?: string): Promise<McpServerMetadata[]> {
     const { results } = await this.db
       .prepare("SELECT * FROM mcp_servers ORDER BY name")
       .all<McpServerRow>();
-    const configs = await Promise.all(results.map((r) => this.decryptRow(r)));
-    if (repoScope === undefined) return configs;
+    const metadata = results.map(rowToMetadata);
+    if (repoScope === undefined) return metadata;
     const normalized = repoScope.toLowerCase();
-    return configs.filter((c) => {
+    return metadata.filter((c) => {
       if (!c.repoScopes) return true;
       return c.repoScopes.some((s) => s.toLowerCase() === normalized);
     });
   }
 
-  async get(id: string): Promise<McpServerConfig | null> {
+  /**
+   * Get a single MCP server's metadata (no decrypted credentials).
+   * Safe for API responses.
+   */
+  async get(id: string): Promise<McpServerMetadata | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM mcp_servers WHERE id = ?")
+      .bind(id)
+      .first<McpServerRow>();
+    return row ? rowToMetadata(row) : null;
+  }
+
+  /**
+   * Get a single MCP server with decrypted credentials.
+   * Internal only — used by update() to read-then-merge.
+   */
+  private async getDecrypted(id: string): Promise<McpServerConfig | null> {
     const row = await this.db
       .prepare("SELECT * FROM mcp_servers WHERE id = ?")
       .bind(id)
@@ -165,7 +204,7 @@ export class McpServerStore {
     return row ? this.decryptRow(row) : null;
   }
 
-  async create(config: Omit<McpServerConfig, "id">): Promise<McpServerConfig> {
+  async create(config: Omit<McpServerConfig, "id">): Promise<McpServerMetadata> {
     const id = generateId();
     const now = Date.now();
 
@@ -225,8 +264,8 @@ export class McpServerStore {
         "name" | "type" | "command" | "url" | "env" | "headers" | "repoScopes" | "enabled"
       >
     >
-  ): Promise<McpServerConfig | null> {
-    const existing = await this.get(id);
+  ): Promise<McpServerMetadata | null> {
+    const existing = await this.getDecrypted(id);
     if (!existing) return null;
 
     // Explicit allowlist — id, created_at, updated_at cannot be overwritten
@@ -282,15 +321,12 @@ export class McpServerStore {
       throw err;
     }
 
-    // Build the return value from in-memory merged data — avoids a second read+decrypt cycle.
-    // Note: unlike create() which round-trips through get(), this bypasses any DB-level
-    // normalisation. In practice D1/SQLite does not transform the values we write, so the
-    // result is equivalent. If that ever changes, swap this for `await this.get(id)`.
-    return {
-      id,
-      ...merged,
-      repoScopes: merged.repoScopes?.length ? merged.repoScopes.map((r) => r.toLowerCase()) : null,
-    };
+    // Return metadata (no credentials) from the updated row
+    const updated = await this.get(id);
+    if (!updated) {
+      throw new Error(`MCP server '${id}' not found after update — this should not happen`);
+    }
+    return updated;
   }
 
   async delete(id: string): Promise<boolean> {
@@ -300,11 +336,12 @@ export class McpServerStore {
 
   /**
    * Get all enabled MCP servers applicable to a session (global + repo-specific).
+   * Decrypts credentials — only called internally at sandbox spawn time.
    *
    * Returned env values are decrypted plaintext — required by the sandbox at runtime.
    * Do NOT log the returned McpServerConfig objects.
    */
-  async getForSession(repoOwner: string, repoName: string): Promise<McpServerConfig[]> {
+  async getDecryptedForSession(repoOwner: string, repoName: string): Promise<McpServerConfig[]> {
     const repoFullName = `${repoOwner}/${repoName}`.toLowerCase();
     const { results } = await this.db
       .prepare("SELECT * FROM mcp_servers WHERE enabled = 1 ORDER BY name")
