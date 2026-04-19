@@ -1196,6 +1196,13 @@ class SandboxSupervisor:
         git_sync_success = False
         opencode_ready = False
         try:
+            # For repo_image boots, start OpenCode immediately — the repo
+            # directory and .opencode/ already exist in the image, so
+            # OpenCode can initialise while git sync and hooks run.
+            opencode_task: asyncio.Task | None = None
+            if from_repo_image:
+                opencode_task = asyncio.create_task(self.start_opencode())
+
             # Phase 1: Git sync
             if restored_from_snapshot:
                 await self._update_existing_repo()  # best-effort
@@ -1251,8 +1258,12 @@ class SandboxSupervisor:
                     except Exception as e:
                         self.log.warn("ttyd_proxy.start_failed", exc=e)
 
-            # Phase 4: Start OpenCode server (in repo directory)
-            await self.start_opencode()
+            # Phase 4: Wait for OpenCode (already started for repo_image,
+            # start now for other boot modes).
+            if opencode_task:
+                await opencode_task
+            else:
+                await self.start_opencode()
             opencode_ready = True
 
             # Phase 5: Start bridge (after OpenCode is ready)
