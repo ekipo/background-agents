@@ -33,8 +33,8 @@ TTYD_VERSION = "1.7.7"
 TTYD_SHA256 = "8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55"
 
 # Cache buster - change this to force Modal image rebuild
-# v47: pre-stage .opencode dir + symlink node_modules for faster boot
-CACHE_BUSTER = "v47-prestage-opencode"
+# v47: refresh sandbox image to pull latest OpenCode release
+CACHE_BUSTER = "v47-opencode-refresh"
 
 # Base image with all development tools
 base_image = (
