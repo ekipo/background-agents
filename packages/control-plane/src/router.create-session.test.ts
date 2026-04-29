@@ -4,14 +4,13 @@ import { SessionIndexStore } from "./db/session-index";
 import { handleRequest } from "./router";
 import { resolveRepoOrError } from "./routes/shared";
 import { SessionInternalPaths } from "./session/contracts";
-import type * as SharedRoutes from "./routes/shared";
 
 vi.mock("./db/session-index", () => ({
   SessionIndexStore: vi.fn(),
 }));
 
 vi.mock("./routes/shared", async (importOriginal) => {
-  const actual = (await importOriginal()) as typeof SharedRoutes;
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     resolveRepoOrError: vi.fn(),
