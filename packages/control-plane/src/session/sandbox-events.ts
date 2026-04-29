@@ -42,10 +42,12 @@ export class SessionSandboxEventProcessor {
   constructor(private readonly deps: SessionSandboxEventProcessorDeps) {}
 
   async processSandboxEvent(event: SandboxEventWithAck): Promise<void> {
+    const sandboxId = "sandboxId" in event ? event.sandboxId : undefined;
+
     if (event.type === "heartbeat" || event.type === "token") {
-      this.deps.log.debug("Sandbox event", { event_type: event.type });
+      this.deps.log.debug("Sandbox event", { event_type: event.type, sandbox_id: sandboxId });
     } else if (event.type !== "execution_complete") {
-      this.deps.log.info("Sandbox event", { event_type: event.type });
+      this.deps.log.info("Sandbox event", { event_type: event.type, sandbox_id: sandboxId });
     }
     const now = Date.now();
 
@@ -143,6 +145,7 @@ export class SessionSandboxEventProcessor {
           this.deps.callbackService.notifyToolCall(messageId, event).catch((error) => {
             this.deps.log.error("callback.tool_call.background_error", {
               message_id: messageId,
+              sandbox_id: sandboxId,
               error,
             });
           })
@@ -188,6 +191,7 @@ export class SessionSandboxEventProcessor {
         this.deps.log.info("prompt.complete", {
           event: "prompt.complete",
           message_id: completionMessageId,
+          sandbox_id: sandboxId,
           outcome: event.success ? "success" : "failure",
           message_status: status,
           total_duration_ms: totalDurationMs,
@@ -209,6 +213,7 @@ export class SessionSandboxEventProcessor {
         this.deps.log.info("prompt.complete", {
           event: "prompt.complete",
           message_id: completionMessageId,
+          sandbox_id: sandboxId,
           outcome: "already_stopped",
         });
       }

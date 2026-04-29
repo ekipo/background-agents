@@ -114,6 +114,7 @@ export class SessionDO extends DurableObject<Env> {
   private repository: SessionRepository;
   private initialized = false;
   private log: Logger;
+  private loggerSandboxId: string | null = null;
   // WebSocket manager (lazily initialized like lifecycleManager)
   private _wsManager: SessionWebSocketManager | null = null;
   // Lifecycle manager (lazily initialized)
@@ -759,12 +760,22 @@ export class SessionDO extends DurableObject<Env> {
     this.initialized = true;
     const session = this.repository.getSession();
     const sessionId = session?.session_name || session?.id || this.ctx.id.toString();
-    this.log = createLogger(
-      "session-do",
-      { session_id: sessionId },
-      parseLogLevel(this.env.LOG_LEVEL)
-    );
+    const sandboxId = this.repository.getSandbox()?.modal_sandbox_id ?? null;
+    const logContext: Record<string, unknown> = { session_id: sessionId };
+    if (sandboxId) {
+      logContext.sandbox_id = sandboxId;
+      this.loggerSandboxId = sandboxId;
+    }
+    this.log = createLogger("session-do", logContext, parseLogLevel(this.env.LOG_LEVEL));
     this.wsManager.enableAutoPingPong();
+  }
+
+  private refreshLoggerSandboxId(): void {
+    const sandboxId = this.repository.getSandbox()?.modal_sandbox_id ?? null;
+    if (!sandboxId || sandboxId === this.loggerSandboxId) return;
+
+    this.log = this.log.child({ sandbox_id: sandboxId });
+    this.loggerSandboxId = sandboxId;
   }
 
   /**
@@ -777,6 +788,7 @@ export class SessionDO extends DurableObject<Env> {
     const initMs = performance.now() - fetchStart;
 
     const originalLogger = this.log;
+    const originalLoggerSandboxId = this.loggerSandboxId;
 
     // Extract correlation headers and create a request-scoped logger
     const traceId = request.headers.get("x-trace-id");
@@ -831,7 +843,10 @@ export class SessionDO extends DurableObject<Env> {
 
       return new Response("Not Found", { status: 404 });
     } finally {
-      this.log = originalLogger;
+      this.log =
+        this.loggerSandboxId && this.loggerSandboxId !== originalLoggerSandboxId
+          ? originalLogger.child({ sandbox_id: this.loggerSandboxId })
+          : originalLogger;
     }
   }
 
@@ -914,6 +929,7 @@ export class SessionDO extends DurableObject<Env> {
         // Notify manager that sandbox connected so it can reset the spawning flag
         this.lifecycleManager.onSandboxConnected();
         this.updateSandboxStatus("ready");
+        this.refreshLoggerSandboxId();
         this.broadcast({ type: "sandbox_status", status: "ready" });
 
         // Set initial activity timestamp and schedule inactivity check
@@ -1411,6 +1427,7 @@ export class SessionDO extends DurableObject<Env> {
    */
   private async spawnSandbox(): Promise<void> {
     await this.lifecycleManager.spawnSandbox();
+    this.refreshLoggerSandboxId();
   }
 
   /**
