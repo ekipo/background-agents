@@ -82,7 +82,15 @@ export async function handleSlackNotify(
   }
 
   const settingsStore = new IntegrationSettingsStore(env.DB);
-  const { settings } = await settingsStore.getResolvedConfig("slack", repo);
+  const { enabledRepos, settings } = await settingsStore.getResolvedConfig("slack", repo);
+  if (enabledRepos !== null && !enabledRepos.includes(repo.toLowerCase())) {
+    await emitDenial(env, sessionId, ctx, parsed, attribution, "feature_disabled");
+    return failureResponse(
+      "feature_disabled",
+      "Slack agent notifications are disabled for this repository."
+    );
+  }
+
   const { agentNotificationsEnabled, mentionsPolicy } = resolveSlackSettings(
     settings as Partial<SlackGlobalSettings>
   );

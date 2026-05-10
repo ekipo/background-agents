@@ -7,6 +7,7 @@ import { initNamedSession, queryDO, seedSandboxAuth } from "./helpers";
 
 async function setupSession(opts?: {
   agentNotificationsEnabled?: boolean;
+  enabledRepos?: string[];
   mentionsPolicy?: "allow" | "escape" | "strip";
   parentSessionId?: string | null;
   spawnSource?: "user" | "agent";
@@ -47,6 +48,7 @@ async function setupSession(opts?: {
   if (opts?.agentNotificationsEnabled !== undefined || opts?.mentionsPolicy !== undefined) {
     const store = new IntegrationSettingsStore(env.DB);
     await store.setGlobal("slack", {
+      ...(opts.enabledRepos !== undefined ? { enabledRepos: opts.enabledRepos } : {}),
       defaults: {
         agentNotificationsEnabled: opts?.agentNotificationsEnabled ?? false,
         mentionsPolicy: opts?.mentionsPolicy ?? "allow",
@@ -119,6 +121,30 @@ describe("POST /sessions/:id/slack-notify", () => {
     expect(res.status).toBe(403);
     const body = await res.json<{ error: string }>();
     expect(body.error).toBe("feature_disabled");
+  });
+
+  it("returns 403 feature_disabled when the repo is outside the Slack enabledRepos allowlist", async () => {
+    const { sessionName, sandboxToken } = await setupSession({
+      agentNotificationsEnabled: true,
+      enabledRepos: ["other/repo"],
+    });
+
+    const slackFetch = buildSlackFetchMock({});
+    vi.stubGlobal("fetch", slackFetch);
+
+    const res = await SELF.fetch(`https://test.local/sessions/${sessionName}/slack-notify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sandboxToken}`,
+      },
+      body: JSON.stringify({ channel: "#ops", text: "hi" }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json<{ error: string }>();
+    expect(body.error).toBe("feature_disabled");
+    expect(slackFetch).not.toHaveBeenCalled();
   });
 
   it("returns 200 and emits tool_call + tool_result events on Slack success", async () => {
