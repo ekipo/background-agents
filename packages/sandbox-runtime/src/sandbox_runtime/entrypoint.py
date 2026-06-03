@@ -29,15 +29,45 @@ from .constants import (
     TTYD_PROXY_PORT,
     TUNNEL_ENV_FILE_PATH,
 )
+from .docker_service import DEFAULT_DOCKER_DATA_ROOT, DockerService
 from .log_config import configure_logging, get_logger
 from .runtime_services import RuntimeServices
 
 configure_logging()
 
 
+DOCKER_DATA_ROOT_ENV_VAR = "DOCKER_DATA_ROOT"
+DOCKER_ENABLED_ENV_VAR = "OPENINSPECT_DOCKER_ENABLED"
+SANDBOX_IMAGE_PROFILE_ENV_VAR = "OPENINSPECT_SANDBOX_IMAGE_PROFILE"
+
 AGENT_TOOLS_GATED_ON_ENV: dict[str, str] = {
     "slack-notify.js": "AGENT_SLACK_NOTIFY_ENABLED",
 }
+
+
+def build_runtime_services(
+    log,
+    *,
+    docker_enabled: bool,
+    sandbox_image_profile: str,
+    docker_data_root: Path,
+) -> RuntimeServices:
+    if not docker_enabled:
+        log.info(
+            "runtime_services.docker_disabled",
+            image_profile=sandbox_image_profile,
+        )
+        return RuntimeServices(log)
+
+    log.info(
+        "runtime_services.docker_enabled",
+        image_profile=sandbox_image_profile,
+    )
+    return RuntimeServices(
+        log,
+        docker=DockerService(log, data_root=docker_data_root),
+    )
+
 
 # Wrapper installed at /usr/local/bin/gh (ahead of the real /usr/bin/gh in
 # PATH). The git credential helper can't authenticate the GitHub CLI — gh
@@ -130,6 +160,11 @@ class SandboxSupervisor:
         self.repo_owner = os.environ.get("REPO_OWNER", "")
         self.repo_name = os.environ.get("REPO_NAME", "")
         self.vcs_host = os.environ.get("VCS_HOST", "github.com")
+        self.sandbox_image_profile = os.environ.get(SANDBOX_IMAGE_PROFILE_ENV_VAR, "default")
+        self.docker_enabled = os.environ.get(DOCKER_ENABLED_ENV_VAR, "").lower() == "true"
+        self.docker_data_root = Path(
+            os.environ.get(DOCKER_DATA_ROOT_ENV_VAR, str(DEFAULT_DOCKER_DATA_ROOT))
+        )
         # Note: VCS credentials are no longer captured at sandbox start. Git
         # operations authenticate per-call via the system-wide credential
         # helper (`/usr/local/bin/oi-git-credentials`), which fetches fresh
@@ -152,7 +187,12 @@ class SandboxSupervisor:
             sandbox_id=self.sandbox_id,
             session_id=session_id,
         )
-        self.runtime_services = RuntimeServices.from_env(self.log)
+        self.runtime_services = build_runtime_services(
+            self.log,
+            docker_enabled=self.docker_enabled,
+            sandbox_image_profile=self.sandbox_image_profile,
+            docker_data_root=self.docker_data_root,
+        )
 
     @property
     def base_branch(self) -> str:

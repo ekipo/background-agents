@@ -8,25 +8,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from sandbox_runtime.docker_service import DockerService
-from sandbox_runtime.entrypoint import SandboxSupervisor
-from sandbox_runtime.runtime_services import RuntimeServices
+from sandbox_runtime.entrypoint import SandboxSupervisor, build_runtime_services
 
 
-def test_docker_service_from_env_reads_data_root(monkeypatch, tmp_path):
+def test_build_runtime_services_omits_docker_when_disabled(tmp_path):
     data_root = tmp_path / "docker-data"
-    monkeypatch.setenv("DOCKER_DATA_ROOT", str(data_root))
-
-    service = DockerService.from_env(MagicMock())
-
-    assert service.data_root == data_root
-
-
-def test_runtime_services_omits_docker_when_disabled(monkeypatch):
-    monkeypatch.delenv("OPENINSPECT_DOCKER_ENABLED", raising=False)
-    monkeypatch.setenv("OPENINSPECT_SANDBOX_IMAGE_PROFILE", "default")
     log = MagicMock()
 
-    services = RuntimeServices.from_env(log)
+    services = build_runtime_services(
+        log,
+        docker_enabled=False,
+        sandbox_image_profile="default",
+        docker_data_root=data_root,
+    )
 
     assert services.docker is None
     log.info.assert_called_with(
@@ -35,14 +29,16 @@ def test_runtime_services_omits_docker_when_disabled(monkeypatch):
     )
 
 
-def test_runtime_services_includes_docker_when_enabled(monkeypatch, tmp_path):
+def test_build_runtime_services_includes_docker_when_enabled(tmp_path):
     data_root = tmp_path / "docker-data"
-    monkeypatch.setenv("OPENINSPECT_DOCKER_ENABLED", "true")
-    monkeypatch.setenv("OPENINSPECT_SANDBOX_IMAGE_PROFILE", "docker")
-    monkeypatch.setenv("DOCKER_DATA_ROOT", str(data_root))
     log = MagicMock()
 
-    services = RuntimeServices.from_env(log)
+    services = build_runtime_services(
+        log,
+        docker_enabled=True,
+        sandbox_image_profile="docker",
+        docker_data_root=data_root,
+    )
 
     assert isinstance(services.docker, DockerService)
     assert services.docker.data_root == data_root

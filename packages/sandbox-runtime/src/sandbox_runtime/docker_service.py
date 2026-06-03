@@ -1,7 +1,6 @@
 """Docker daemon supervision for sandbox runtime processes."""
 
 import asyncio
-import os
 import shutil
 import time
 from contextlib import suppress
@@ -37,13 +36,6 @@ class DockerService:
         self.ip_forward_path = ip_forward_path
         self.process: asyncio.subprocess.Process | None = None
         self._log_task: asyncio.Task[None] | None = None
-
-    @classmethod
-    def from_env(cls, log) -> "DockerService":
-        return cls(
-            log,
-            data_root=Path(os.environ.get("DOCKER_DATA_ROOT", str(DEFAULT_DOCKER_DATA_ROOT))),
-        )
 
     @property
     def exit_code(self) -> int | None:
