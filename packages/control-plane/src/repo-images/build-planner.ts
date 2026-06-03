@@ -21,6 +21,14 @@ export interface RepoImageBuildPlan {
   imageProfile: SandboxImageProfile;
 }
 
+/**
+ * Resolves the build identity for repo-image creation.
+ *
+ * Repo image builds must use the same normalized sandbox settings and derived image profile whether
+ * they are triggered manually or discovered by the scheduler. Keep that resolution here so route
+ * handlers do not independently derive Docker/profile state and accidentally register or request a
+ * build under a different profile.
+ */
 export class RepoImageBuildPlanner {
   constructor(private readonly db: D1Database) {}
 
