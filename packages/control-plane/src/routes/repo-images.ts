@@ -13,7 +13,7 @@ import { RepoMetadataStore } from "../db/repo-metadata";
 import { GlobalSecretsStore } from "../db/global-secrets";
 import { RepoSecretsStore } from "../db/repo-secrets";
 import { mergeSecrets } from "../db/secrets-validation";
-import { RepoImageBuildPlanner } from "../repo-images/build-planner";
+import { RepoImageBuildProfileResolver } from "../repo-images/build-profile-resolver";
 import { createModalClient } from "../sandbox/client";
 import { isModalSandboxBackend } from "../sandbox/provider-name";
 import { createLogger } from "../logger";
@@ -203,12 +203,12 @@ async function handleTriggerBuild(
   const { owner, name } = params;
 
   const store = new RepoImageStore(env.DB);
-  const planner = new RepoImageBuildPlanner(env.DB);
+  const profileResolver = new RepoImageBuildProfileResolver(env.DB);
   const now = Date.now();
   const buildId = `img-${owner}-${name}-${now}`;
 
   try {
-    const buildPlan = await planner.plan({ repoOwner: owner, repoName: name });
+    const buildProfile = await profileResolver.resolve({ repoOwner: owner, repoName: name });
 
     // Register the build in D1
     await store.registerBuild({
@@ -216,7 +216,7 @@ async function handleTriggerBuild(
       repoOwner: owner,
       repoName: name,
       baseBranch: "main",
-      imageProfile: buildPlan.imageProfile,
+      imageProfile: buildProfile.imageProfile,
     });
 
     // Construct callback URL
@@ -283,8 +283,7 @@ async function handleTriggerBuild(
         buildId,
         callbackUrl,
         userEnvVars,
-        sandboxSettings: buildPlan.sandboxSettings,
-        imageProfile: buildPlan.imageProfile,
+        imageProfile: buildProfile.imageProfile,
       },
       { trace_id: ctx.trace_id, request_id: ctx.request_id }
     );
@@ -293,7 +292,7 @@ async function handleTriggerBuild(
       build_id: buildId,
       repo_owner: owner,
       repo_name: name,
-      image_profile: buildPlan.imageProfile,
+      image_profile: buildProfile.imageProfile,
       request_id: ctx.request_id,
       trace_id: ctx.trace_id,
     });
@@ -525,16 +524,16 @@ async function handleGetEnabledRepos(
   }
 
   const metadataStore = new RepoMetadataStore(env.DB);
-  const planner = new RepoImageBuildPlanner(env.DB);
+  const profileResolver = new RepoImageBuildProfileResolver(env.DB);
 
   try {
     const repos = await metadataStore.getImageBuildEnabledRepos();
-    const buildPlans = await planner.planMany(repos);
-    const reposWithSettings = buildPlans.map(({ repo, imageProfile }) => ({
+    const buildProfiles = await profileResolver.resolveMany(repos);
+    const reposWithProfiles = buildProfiles.map(({ repo, imageProfile }) => ({
       ...repo,
       imageProfile,
     }));
-    return json({ repos: reposWithSettings });
+    return json({ repos: reposWithProfiles });
   } catch (e) {
     logger.error("repo_image.enabled_repos_error", {
       error: e instanceof Error ? e.message : String(e),

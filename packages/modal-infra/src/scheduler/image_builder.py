@@ -26,7 +26,6 @@ import os
 import subprocess
 import time
 from collections.abc import Iterable
-from typing import Any
 
 import httpx
 import modal
@@ -248,7 +247,6 @@ async def build_repo_image(
     callback_url: str = "",
     build_id: str = "",
     user_env_vars: dict[str, str] | None = None,
-    sandbox_settings: dict[str, Any] | None = None,
     image_profile: str = DEFAULT_IMAGE_PROFILE,
 ) -> None:
     """
@@ -264,7 +262,6 @@ async def build_repo_image(
         callback_url: URL to POST success result to
         build_id: Build identifier from the control plane
         user_env_vars: User-defined environment variables (repo secrets) injected into the build sandbox
-        sandbox_settings: Resolved sandbox settings for this repository
         image_profile: Resolved sandbox image profile for this build
     """
     from ..sandbox.manager import SNAPSHOT_FILESYSTEM_TIMEOUT_SECONDS, SandboxManager

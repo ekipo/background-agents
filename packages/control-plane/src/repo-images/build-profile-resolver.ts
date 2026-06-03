@@ -2,7 +2,6 @@ import {
   normalizeSandboxRuntimeSettings,
   resolveSandboxImageProfile,
   type SandboxImageProfile,
-  type SandboxRuntimeSettings,
 } from "@open-inspect/shared";
 
 import {
@@ -15,35 +14,33 @@ export interface RepoImageBuildRepo {
   repoName: string;
 }
 
-export interface RepoImageBuildPlan {
+export interface RepoImageBuildProfile {
   repo: RepoImageBuildRepo;
-  sandboxSettings: SandboxRuntimeSettings;
   imageProfile: SandboxImageProfile;
 }
 
 /**
- * Resolves the build identity for repo-image creation.
+ * Resolves the repo-image build profile from repository sandbox settings.
  *
- * Repo image builds must use the same normalized sandbox settings and derived image profile whether
- * they are triggered manually or discovered by the scheduler. Keep that resolution here so route
- * handlers do not independently derive Docker/profile state and accidentally register or request a
- * build under a different profile.
+ * Repo image builds only need the derived compatibility key (`imageProfile`). Runtime sandbox
+ * settings stay in the control plane and are not forwarded to Modal's async builder. Centralizing
+ * this lookup keeps manual triggers and scheduler responses aligned without making route handlers
+ * understand Docker settings.
  */
-export class RepoImageBuildPlanner {
+export class RepoImageBuildProfileResolver {
   constructor(private readonly db: D1Database) {}
 
-  async plan(repo: RepoImageBuildRepo): Promise<RepoImageBuildPlan> {
+  async resolve(repo: RepoImageBuildRepo): Promise<RepoImageBuildProfile> {
     const sandboxSettings = normalizeSandboxRuntimeSettings(
       await resolveSandboxSettings(this.db, repo.repoOwner, repo.repoName)
     );
     return {
       repo,
-      sandboxSettings,
       imageProfile: resolveSandboxImageProfile(sandboxSettings),
     };
   }
 
-  async planMany(repos: RepoImageBuildRepo[]): Promise<RepoImageBuildPlan[]> {
+  async resolveMany(repos: RepoImageBuildRepo[]): Promise<RepoImageBuildProfile[]> {
     const sandboxSettings = (await resolveSandboxSettingsForRepos(this.db, repos)).map((settings) =>
       normalizeSandboxRuntimeSettings(settings)
     );
@@ -54,7 +51,6 @@ export class RepoImageBuildPlanner {
     }
     return repos.map((repo, index) => ({
       repo,
-      sandboxSettings: sandboxSettings[index],
       imageProfile: resolveSandboxImageProfile(sandboxSettings[index]),
     }));
   }

@@ -110,7 +110,7 @@ async def test_create_sandbox_resolves_clone_token_for_prebuilt_boot(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_build_repo_image_forwards_sandbox_settings(monkeypatch):
+async def test_build_repo_image_forwards_image_profile(monkeypatch):
     captured = {}
 
     _patch_auth(monkeypatch)
@@ -131,11 +131,10 @@ async def test_build_repo_image_forwards_sandbox_settings(monkeypatch):
             "default_branch": "main",
             "build_id": "build-1",
             "callback_url": "https://control-plane.example/repo-images/build-complete",
-            "sandbox_settings": {"dockerEnabled": True},
             "image_profile": "docker",
         }
     )
 
     assert result["success"] is True
-    assert captured["sandbox_settings"] == {"dockerEnabled": True}
+    assert "sandbox_settings" not in captured
     assert captured["image_profile"] == "docker"

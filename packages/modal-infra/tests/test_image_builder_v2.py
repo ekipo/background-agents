@@ -426,7 +426,6 @@ class TestBuildRepoImage:
                 repo_name="repo",
                 callback_url="https://cp.test/repo-images/build-complete",
                 build_id="img-1",
-                sandbox_settings={"dockerEnabled": True},
                 image_profile="docker",
             )
 

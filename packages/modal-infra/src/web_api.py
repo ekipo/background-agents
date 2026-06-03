@@ -589,7 +589,6 @@ async def api_build_repo_image(
         build_id = request.get("build_id", "")
         callback_url = request.get("callback_url", "")
         user_env_vars = request.get("user_env_vars") or None
-        sandbox_settings = request.get("sandbox_settings") or None
         image_profile = parse_request_image_profile(request)
 
         if not repo_owner or not repo_name:
@@ -606,7 +605,6 @@ async def api_build_repo_image(
             callback_url=callback_url,
             build_id=build_id,
             user_env_vars=user_env_vars,
-            sandbox_settings=sandbox_settings,
             image_profile=image_profile,
         )
 

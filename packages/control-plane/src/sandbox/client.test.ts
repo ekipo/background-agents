@@ -89,7 +89,7 @@ describe("ModalClient", () => {
     );
   });
 
-  it("includes sandbox settings in repo-image build requests", async () => {
+  it("includes the image profile in repo-image build requests", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({ success: true, data: { build_id: "img-1", status: "building" } }),
@@ -106,12 +106,11 @@ describe("ModalClient", () => {
       repoName: "repo",
       buildId: "img-1",
       callbackUrl: "https://cp.example/repo-images/build-complete",
-      sandboxSettings: { dockerEnabled: true },
       imageProfile: "docker",
     });
 
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.sandbox_settings).toEqual({ dockerEnabled: true });
+    expect(body).not.toHaveProperty("sandbox_settings");
     expect(body.image_profile).toBe("docker");
   });
 });

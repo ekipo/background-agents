@@ -146,7 +146,6 @@ export interface BuildRepoImageRequest {
   buildId: string;
   callbackUrl: string;
   userEnvVars?: Record<string, string>;
-  sandboxSettings?: SandboxRuntimeSettings;
   imageProfile: SandboxImageProfile;
 }
 
@@ -571,7 +570,6 @@ export class ModalClient {
           build_id: request.buildId,
           callback_url: request.callbackUrl,
           user_env_vars: request.userEnvVars,
-          sandbox_settings: request.sandboxSettings ?? null,
           image_profile: request.imageProfile,
         }),
       });
