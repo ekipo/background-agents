@@ -70,6 +70,11 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       const envVars = await this.buildEnvVars(config);
       const labels = this.buildLabels(config);
 
+      // Daytona uses a single base snapshot, so it ignores config.environment.
+      // TODO: realize config.requestedRuntime?.docker here when Daytona Docker
+      // support lands (its own mechanism — a create flag or snapshot variant —
+      // not the Modal image_profile), and flip
+      // PROVIDER_CAPABILITIES.daytona.supportsDocker.
       const params: DaytonaCreateSandboxParams = {
         name: config.sandboxId,
         snapshot: this.client.config.baseSnapshot,

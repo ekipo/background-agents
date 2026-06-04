@@ -13,7 +13,8 @@
 import {
   DEFAULT_SANDBOX_IMAGE_PROFILE,
   normalizeSandboxRuntimeSettings,
-  resolveSandboxImageProfile,
+  resolveEnvironment,
+  type RequestedSandboxRuntime,
   type SandboxImageProfile,
   type SandboxSettings,
 } from "@open-inspect/shared";
@@ -314,8 +315,8 @@ export class SandboxLifecycleManager {
     }
 
     const session = this.storage.getSession();
-    const requestedImageProfile = session
-      ? this.resolveSessionImageProfile(session)
+    const requestedEnvironment = session
+      ? this.resolveSessionEnvironment(session)
       : DEFAULT_SANDBOX_IMAGE_PROFILE;
 
     // Evaluate spawn decision
@@ -323,7 +324,7 @@ export class SandboxLifecycleManager {
       status: (sandboxState?.status || "pending") as SandboxStatus,
       createdAt: sandboxState?.created_at || 0,
       providerObjectId: sandboxState?.modal_object_id || null,
-      snapshotImageId: this.getCompatibleSnapshotImageId(sandboxState, requestedImageProfile),
+      snapshotImageId: this.getCompatibleSnapshotImageId(sandboxState, requestedEnvironment),
       hasActiveWebSocket: this.wsManager.getSandboxWebSocket() !== null,
     };
 
@@ -411,7 +412,8 @@ export class SandboxLifecycleManager {
       const { provider, model: modelId } = this.resolveProviderAndModel(session);
       const storedSandboxSettings = this.parseSandboxSettings(session);
       const sandboxSettings = normalizeSandboxRuntimeSettings(storedSandboxSettings);
-      const imageProfile = this.resolveSandboxImageProfile(storedSandboxSettings);
+      const requestedRuntime = this.resolveRequestedRuntime(storedSandboxSettings);
+      const environment = resolveEnvironment(requestedRuntime, this.provider.capabilities);
 
       // Look up pre-built repo image (graceful fallback on failure)
       let repoImageId: string | null = null;
@@ -422,7 +424,7 @@ export class SandboxLifecycleManager {
             session.repo_owner,
             session.repo_name,
             session.base_branch,
-            imageProfile
+            environment
           );
           if (repoImage) {
             repoImageId = repoImage.provider_image_id;
@@ -465,7 +467,8 @@ export class SandboxLifecycleManager {
         agentSlackNotifyEnabled,
         mcpServers,
         sandboxSettings,
-        ...(this.providerSupportsDocker() ? { imageProfile } : {}),
+        requestedRuntime,
+        environment,
       };
 
       const result = await this.provider.createSandbox(createConfig);
@@ -631,7 +634,8 @@ export class SandboxLifecycleManager {
       const mcpServers = await this.loadMcpServers(session);
       const storedSandboxSettings = this.parseSandboxSettings(session);
       const sandboxSettings = normalizeSandboxRuntimeSettings(storedSandboxSettings);
-      const imageProfile = this.resolveSandboxImageProfile(storedSandboxSettings);
+      const requestedRuntime = this.resolveRequestedRuntime(storedSandboxSettings);
+      const environment = resolveEnvironment(requestedRuntime, this.provider.capabilities);
       const result = await this.provider.restoreFromSnapshot({
         snapshotImageId,
         sessionId: session.session_name || session.id,
@@ -649,7 +653,8 @@ export class SandboxLifecycleManager {
         agentSlackNotifyEnabled,
         mcpServers,
         sandboxSettings,
-        ...(this.providerSupportsDocker() ? { imageProfile } : {}),
+        requestedRuntime,
+        environment,
       });
 
       if (result.success) {
@@ -850,12 +855,12 @@ export class SandboxLifecycleManager {
       });
 
       if (result.success && result.imageId) {
-        const imageProfile = this.resolveSessionImageProfile(session);
-        this.storage.updateSandboxSnapshotImageId(sandbox.id, result.imageId, imageProfile);
+        const environment = this.resolveSessionEnvironment(session);
+        this.storage.updateSandboxSnapshotImageId(sandbox.id, result.imageId, environment);
         this.log.info("Snapshot saved", {
           event: "sandbox.snapshot_saved",
           image_id: result.imageId,
-          image_profile: imageProfile,
+          image_profile: environment,
           reason,
         });
         this.broadcaster.broadcast({
@@ -1222,36 +1227,40 @@ export class SandboxLifecycleManager {
     }
   }
 
-  private providerSupportsDocker(): boolean {
-    return this.provider.capabilities.supportsDocker === true;
+  /** Map persisted sandbox settings to provider-agnostic runtime intent. */
+  private resolveRequestedRuntime(settings: SandboxSettings): RequestedSandboxRuntime {
+    return { docker: settings.dockerEnabled === true };
   }
 
-  private resolveSandboxImageProfile(settings: SandboxSettings): SandboxImageProfile {
-    if (!this.providerSupportsDocker()) return DEFAULT_SANDBOX_IMAGE_PROFILE;
-    return resolveSandboxImageProfile(settings);
-  }
-
-  private resolveSessionImageProfile(session: SessionRow): SandboxImageProfile {
-    return this.resolveSandboxImageProfile(this.parseSandboxSettings(session));
+  /**
+   * Resolve the logical environment id for a session, gated by the active
+   * provider's capabilities. The manager speaks this shared id — never a
+   * provider image.
+   */
+  private resolveSessionEnvironment(session: SessionRow): SandboxImageProfile {
+    return resolveEnvironment(
+      this.resolveRequestedRuntime(this.parseSandboxSettings(session)),
+      this.provider.capabilities
+    );
   }
 
   private getCompatibleSnapshotImageId(
     sandboxState: SandboxCircuitBreakerInfo | null,
-    requestedImageProfile: SandboxImageProfile
+    requestedEnvironment: SandboxImageProfile
   ): string | null {
     if (!sandboxState?.snapshot_image_id) return null;
 
-    const snapshotImageProfile =
+    const snapshotEnvironment =
       sandboxState.snapshot_image_profile ?? DEFAULT_SANDBOX_IMAGE_PROFILE;
-    if (snapshotImageProfile === requestedImageProfile) {
+    if (snapshotEnvironment === requestedEnvironment) {
       return sandboxState.snapshot_image_id;
     }
 
-    this.log.info("Ignoring snapshot image with mismatched profile", {
+    this.log.info("Ignoring snapshot image with mismatched environment", {
       event: "sandbox.snapshot_profile_mismatch",
       snapshot_image_id: sandboxState.snapshot_image_id,
-      snapshot_image_profile: snapshotImageProfile,
-      requested_image_profile: requestedImageProfile,
+      snapshot_image_profile: snapshotEnvironment,
+      requested_image_profile: requestedEnvironment,
     });
     return null;
   }

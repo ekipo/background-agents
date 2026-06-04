@@ -6,6 +6,7 @@
  */
 
 import type {
+  RequestedSandboxRuntime,
   SandboxImageProfile,
   SandboxProviderCapabilities,
   SandboxRuntimeSettings,
@@ -68,8 +69,19 @@ export interface CreateSandboxConfig {
   mcpServers?: McpServerConfig[];
   /** Runtime sandbox settings resolved from integration settings */
   sandboxSettings?: SandboxRuntimeSettings;
-  /** Runtime image profile selected by the control plane when provider capabilities require it */
-  imageProfile?: SandboxImageProfile;
+  /**
+   * Provider-agnostic declarative runtime intent (e.g. Docker). The provider
+   * realizes it with its own mechanism; the manager does not pre-translate it.
+   */
+  requestedRuntime?: RequestedSandboxRuntime;
+  /**
+   * Resolved logical environment id (shared, provider-agnostic) for this spawn.
+   * Drives image selection and snapshot/prebuilt-image compatibility. Each
+   * provider maps it to a concrete image internally; the control plane never
+   * sees a provider image. Computed once by the lifecycle manager via
+   * resolveEnvironment(requestedRuntime, capabilities).
+   */
+  environment: SandboxImageProfile;
 }
 
 /**
@@ -132,8 +144,10 @@ export interface RestoreConfig {
   agentSlackNotifyEnabled?: boolean;
   /** Runtime sandbox settings resolved from integration settings */
   sandboxSettings?: SandboxRuntimeSettings;
-  /** Runtime image profile selected by the control plane when provider capabilities require it */
-  imageProfile?: SandboxImageProfile;
+  /** Provider-agnostic declarative runtime intent (e.g. Docker). See CreateSandboxConfig. */
+  requestedRuntime?: RequestedSandboxRuntime;
+  /** Resolved logical environment id for this restore. See CreateSandboxConfig. */
+  environment: SandboxImageProfile;
 }
 
 /**

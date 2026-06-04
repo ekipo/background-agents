@@ -7,7 +7,7 @@
 
 import { ModalApiError } from "../client";
 import type { ModalClient } from "../client";
-import { DEFAULT_SANDBOX_IMAGE_PROFILE, PROVIDER_CAPABILITIES } from "@open-inspect/shared";
+import { PROVIDER_CAPABILITIES } from "@open-inspect/shared";
 import {
   DEFAULT_SANDBOX_TIMEOUT_SECONDS,
   SandboxProviderError,
@@ -73,7 +73,9 @@ export class ModalSandboxProvider implements SandboxProvider {
           agentSlackNotifyEnabled: config.agentSlackNotifyEnabled,
           mcpServers: config.mcpServers,
           sandboxSettings: config.sandboxSettings,
-          imageProfile: config.imageProfile ?? DEFAULT_SANDBOX_IMAGE_PROFILE,
+          // Modal realizes the shared environment id as its image_profile. The
+          // Modal HTTP contract (image_profile) is intentionally unchanged.
+          imageProfile: config.environment,
         },
         config.correlation
       );
@@ -116,7 +118,7 @@ export class ModalSandboxProvider implements SandboxProvider {
           agentSlackNotifyEnabled: config.agentSlackNotifyEnabled,
           mcpServers: config.mcpServers,
           sandboxSettings: config.sandboxSettings,
-          imageProfile: config.imageProfile ?? DEFAULT_SANDBOX_IMAGE_PROFILE,
+          imageProfile: config.environment,
         },
         config.correlation
       );

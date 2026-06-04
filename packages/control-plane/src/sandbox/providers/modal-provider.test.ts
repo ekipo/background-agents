@@ -62,7 +62,7 @@ const testConfig = {
   sandboxAuthToken: "auth-token",
   provider: "anthropic",
   model: "anthropic/claude-sonnet-4-5",
-  imageProfile: "default" as const,
+  environment: "default" as const,
 };
 
 // ==================== Tests ====================
@@ -78,6 +78,43 @@ describe("ModalSandboxProvider", () => {
       expect(provider.capabilities.supportsRestore).toBe(true);
       expect(provider.capabilities.supportsWarm).toBe(true);
       expect(provider.capabilities.supportsDocker).toBe(true);
+    });
+  });
+
+  describe("image realization (environment -> Modal wire)", () => {
+    it("maps the resolved environment to the Modal image_profile request field", async () => {
+      const client = createMockModalClient();
+      const provider = new ModalSandboxProvider(client);
+
+      await provider.createSandbox({ ...testConfig, environment: "docker" });
+
+      expect(client.createSandbox).toHaveBeenCalledWith(
+        expect.objectContaining({ imageProfile: "docker" }),
+        undefined
+      );
+    });
+
+    it("passes the environment through to image_profile on restore", async () => {
+      const client = createMockModalClient();
+      const provider = new ModalSandboxProvider(client);
+
+      await provider.restoreFromSnapshot({
+        snapshotImageId: "img-123",
+        sessionId: "session-123",
+        sandboxId: "sandbox-123",
+        sandboxAuthToken: "token",
+        controlPlaneUrl: "https://test.com",
+        repoOwner: "owner",
+        repoName: "repo",
+        provider: "anthropic",
+        model: "anthropic/claude-sonnet-4-5",
+        environment: "default",
+      });
+
+      expect(client.restoreSandbox).toHaveBeenCalledWith(
+        expect.objectContaining({ imageProfile: "default" }),
+        undefined
+      );
     });
   });
 
@@ -488,7 +525,7 @@ describe("ModalSandboxProvider", () => {
           repoName: "repo",
           provider: "anthropic",
           model: "anthropic/claude-sonnet-4-5",
-          imageProfile: "default",
+          environment: "default",
         });
         expect.fail("Should have thrown");
       } catch (e) {
@@ -516,7 +553,7 @@ describe("ModalSandboxProvider", () => {
           repoName: "repo",
           provider: "anthropic",
           model: "anthropic/claude-sonnet-4-5",
-          imageProfile: "default",
+          environment: "default",
         });
         expect.fail("Should have thrown");
       } catch (e) {
@@ -566,7 +603,7 @@ describe("ModalSandboxProvider", () => {
         repoName: "repo",
         provider: "anthropic",
         model: "anthropic/claude-sonnet-4-5",
-        imageProfile: "default",
+        environment: "default",
       });
 
       expect(result.success).toBe(true);

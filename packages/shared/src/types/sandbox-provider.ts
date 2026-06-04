@@ -9,6 +9,8 @@
 // the provider name (e.g. `=== "modal"`). Adding or changing a provider is a
 // single edit to PROVIDER_CAPABILITIES.
 
+import { DEFAULT_SANDBOX_IMAGE_PROFILE, type SandboxImageProfile } from "./integrations";
+
 /**
  * Canonical sandbox backends.
  *
@@ -102,4 +104,42 @@ export const PROVIDER_CAPABILITIES: Record<SandboxBackendName, SandboxProviderCa
  */
 export function getProviderCapabilities(value: string | undefined): SandboxProviderCapabilities {
   return PROVIDER_CAPABILITIES[parseSandboxBackendName(value)];
+}
+
+/**
+ * Provider-agnostic, declarative runtime intent for a sandbox.
+ *
+ * Describes what the user wants ("Docker available"), not how a provider
+ * realizes it. Crosses the provider boundary so a provider can act on the
+ * intent directly (e.g. start dockerd) even when the environment id alone does
+ * not encode that behavior. Extend this object (e.g. `gpu?`) to add the next
+ * runtime capability without reshaping the boundary.
+ */
+export interface RequestedSandboxRuntime {
+  /** User wants Docker Engine + Docker Compose available inside the sandbox. */
+  docker?: boolean;
+}
+
+/**
+ * Resolve runtime intent to a logical environment id, gated by provider
+ * capabilities. This is the single place intent → environment lives.
+ *
+ * The environment id is shared and provider-agnostic; it drives image
+ * selection and snapshot/prebuilt-image compatibility. Each provider maps the
+ * id to a concrete image internally. Today this is a 1:1 map (docker intent on
+ * a docker-capable provider → "docker"); it is the seed of a future shared
+ * environment catalog where the boundary may instead carry an explicit
+ * environment selection.
+ *
+ * Capability gating happens here: a Docker request on a provider that does not
+ * support Docker resolves to the default environment.
+ */
+export function resolveEnvironment(
+  requested: RequestedSandboxRuntime | undefined,
+  capabilities: SandboxProviderCapabilities
+): SandboxImageProfile {
+  if (requested?.docker === true && capabilities.supportsDocker === true) {
+    return "docker";
+  }
+  return DEFAULT_SANDBOX_IMAGE_PROFILE;
 }

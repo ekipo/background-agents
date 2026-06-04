@@ -562,7 +562,8 @@ describe("SandboxLifecycleManager", () => {
       expect(provider.createSandbox).toHaveBeenCalledWith(
         expect.objectContaining({
           sandboxSettings: {},
-          imageProfile: "docker",
+          requestedRuntime: { docker: true },
+          environment: "docker",
         })
       );
     });
@@ -1776,12 +1777,13 @@ describe("SandboxLifecycleManager", () => {
       expect(provider.createSandbox).toHaveBeenCalledWith(
         expect.objectContaining({
           sandboxSettings: { tunnelPorts: [3000], terminalEnabled: true },
-          imageProfile: "docker",
+          requestedRuntime: { docker: true },
+          environment: "docker",
         })
       );
     });
 
-    it("doSpawn() omits imageProfile when provider does not support Docker", async () => {
+    it("doSpawn() resolves environment to default when provider does not support Docker", async () => {
       const session = createMockSession({
         sandbox_settings: '{"dockerEnabled":true}',
       });
@@ -1802,7 +1804,9 @@ describe("SandboxLifecycleManager", () => {
       await manager.spawnSandbox();
 
       const createConfig = vi.mocked(provider.createSandbox).mock.calls[0][0];
-      expect(createConfig).not.toHaveProperty("imageProfile");
+      // Intent still crosses the boundary; the environment is capability-gated.
+      expect(createConfig.requestedRuntime).toEqual({ docker: true });
+      expect(createConfig.environment).toBe("default");
       expect(createConfig.sandboxSettings).toEqual({});
     });
 
@@ -1827,7 +1831,7 @@ describe("SandboxLifecycleManager", () => {
       expect(provider.createSandbox).toHaveBeenCalledWith(
         expect.objectContaining({
           sandboxSettings: {},
-          imageProfile: "default",
+          environment: "default",
         })
       );
     });
@@ -1855,7 +1859,7 @@ describe("SandboxLifecycleManager", () => {
       expect(provider.createSandbox).toHaveBeenCalledWith(
         expect.objectContaining({
           sandboxSettings: { tunnelPorts: [3000] },
-          imageProfile: "default",
+          environment: "default",
         })
       );
     });
@@ -1953,7 +1957,7 @@ describe("SandboxLifecycleManager", () => {
       expect(provider.restoreFromSnapshot).toHaveBeenCalledWith(
         expect.objectContaining({
           sandboxSettings: {},
-          imageProfile: "default",
+          environment: "default",
         })
       );
     });
