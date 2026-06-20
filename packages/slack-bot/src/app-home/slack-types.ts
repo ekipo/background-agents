@@ -5,7 +5,11 @@ export interface ModelOption {
   value: string;
 }
 
-export type SlackSelectOption = { text: SlackPlainText; value: string };
+export type SlackSelectOption = {
+  text: SlackPlainText;
+  description?: SlackPlainText;
+  value: string;
+};
 export type SlackPlainText = { type: "plain_text"; text: string };
 export type SlackMrkdwnText = { type: "mrkdwn"; text: string };
 export type SlackText = SlackPlainText | SlackMrkdwnText;
@@ -56,7 +60,9 @@ export type SlackHeaderBlock = { type: "header"; text: SlackPlainText };
 export type SlackSectionBlock = {
   type: "section";
   text: SlackText;
-  accessory?: SlackButtonElement;
+  // A section accessory may be a button or a select (the repo clarification
+  // picker uses an external_select), not only a button.
+  accessory?: SlackBlockElement;
 };
 export type SlackActionsBlock = {
   type: "actions";
